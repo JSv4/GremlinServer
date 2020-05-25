@@ -71,11 +71,14 @@ THIRD_PARTY_APPS = [
     "django_celery_beat",
     "rest_framework",
     "rest_framework.authtoken",
+    "rest_framework_api_key",
+    "corsheaders",
+    "django_filters",
+    "django_cleanup.apps.CleanupConfig",
 ]
-
 LOCAL_APPS = [
     "gremlin_gplv3.users.apps.UsersConfig",
-    # Your stuff: custom apps go here
+    'Jobs.apps.JobsConfig',
 ]
 # https://docs.djangoproject.com/en/dev/ref/settings/#installed-apps
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -122,6 +125,7 @@ AUTH_PASSWORD_VALIDATORS = [
 # MIDDLEWARE
 # ------------------------------------------------------------------------------
 # https://docs.djangoproject.com/en/dev/ref/settings/#middleware
+
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
@@ -133,6 +137,7 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.common.BrokenLinkEmailsMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    'corsheaders.middleware.CorsMiddleware',
 ]
 
 # STATIC
@@ -233,23 +238,66 @@ MANAGERS = ADMINS
 # https://docs.djangoproject.com/en/dev/ref/settings/#logging
 # See https://docs.djangoproject.com/en/dev/topics/logging for
 # more details on how to customize your logging configuration.
-LOGGING = {
-    "version": 1,
-    "disable_existing_loggers": False,
-    "formatters": {
-        "verbose": {
-            "format": "%(levelname)s %(asctime)s %(module)s "
-            "%(process)d %(thread)d %(message)s"
+{
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'file': {
+            'level': 'DEBUG',
+            'class': 'logging.FileHandler',
+            'filename': '/usr/local/gremlin',
+        },
+        'SysLog': {
+            'level': 'DEBUG',
+            'class': 'logging.handlers.SysLogHandler',
+            'formatter': 'simple',
+        },
+        'console':{
+            'level': 'DEBUG',
+            'class': 'logging.StreamHandler',
+        },
+        'task_db_log': {
+            'level': 'DEBUG',
+            'class': 'Jobs.tasklogger.TaskDatabaseLogHandler'
+        },
+        'job_db_log': {
+            'level': 'DEBUG',
+            'class': 'Jobs.tasklogger.JobDatabaseLogHandler'
+        },
+    },
+    'formatters': {
+        'simple': {
+            'format': '%(asctime)s GREMLIN: %(message)s',
+            'datefmt': '%Y-%m-%dT%H:%M:%S',
+        },
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['file', 'console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'celery': {
+            'handlers': ['SysLog'],
+            'level': 'DEBUG',
+            'propagate': True
+        },
+        'Jobs': {
+            'handlers':['console','file'],
+            'level': 'DEBUG',
+            'propogate': True
+        },
+        'task_db': {
+            'handlers': ['task_db_log'],
+            'level': 'DEBUG',
+            'propogate': True
+        },
+        'job_db': {
+            'handlers': ['job_db_log'],
+            'level': 'DEBUG',
+            'propogate': True
         }
     },
-    "handlers": {
-        "console": {
-            "level": "DEBUG",
-            "class": "logging.StreamHandler",
-            "formatter": "verbose",
-        }
-    },
-    "root": {"level": "INFO", "handlers": ["console"]},
 }
 
 # Celery
@@ -275,6 +323,7 @@ CELERY_TASK_TIME_LIMIT = 5 * 60
 CELERY_TASK_SOFT_TIME_LIMIT = 60
 # http://docs.celeryproject.org/en/latest/userguide/configuration.html#beat-scheduler
 CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
+
 # django-allauth
 # ------------------------------------------------------------------------------
 ACCOUNT_ALLOW_REGISTRATION = env.bool("DJANGO_ACCOUNT_ALLOW_REGISTRATION", True)
@@ -293,11 +342,58 @@ SOCIALACCOUNT_ADAPTER = "gremlin_gplv3.users.adapters.SocialAccountAdapter"
 # -------------------------------------------------------------------------------
 # django-rest-framework - https://www.django-rest-framework.org/api-guide/settings/
 REST_FRAMEWORK = {
-    "DEFAULT_AUTHENTICATION_CLASSES": (
-        "rest_framework.authentication.SessionAuthentication",
-        "rest_framework.authentication.TokenAuthentication",
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': 100,
+    'DEFAULT_FILTER_BACKENDS': (
+        'django_filters.rest_framework.DjangoFilterBackend',
     ),
-    "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'rest_framework.authentication.SessionAuthentication'
+    ),
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
+    'SECURITY_DEFINITIONS': {
+        'api_key': {
+            'type': 'apiKey',
+            'in': 'header',
+            'name': 'Authorization'
+        }
+    }
 }
+
 # Your stuff...
 # ------------------------------------------------------------------------------
+DATA_UPLOAD_MAX_MEMORY_SIZE = 5242880
+
+CORS_EXPOSE_HEADERS = [
+    "Filename",
+    "Content-Length",
+    "Content-Disposition"
+]
+
+CORS_ORIGIN_WHITELIST = [
+    "http://localhost:8080",
+    "http://localhost:3000",
+    "http://localhost:8000",
+    'http://clustergremlin.herokuapp.com',
+    'https://clustergremlin.herokuapp.com'
+    '*'
+]
+
+# Allow certain CORS requests
+ACCESS_CONTROL_ALLOW_ORIGIN = [
+    "http://localhost:8080",
+    "http://localhost:3000",
+    "http://localhost:8000",
+    'http://clustergremlin.herokuapp.com',
+    'https://clustergremlin.herokuapp.com'
+]
+
+ALLOWED_HOSTS = [
+    'gremlin.herokuapp.com',
+    'clustergremlinback.herokuapp.com',
+    'localhost',
+    '167.172.26.136',
+]

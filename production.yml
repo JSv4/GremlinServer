@@ -14,6 +14,7 @@ services:
     depends_on:
       - postgres
       - redis
+      - tika
     env_file:
       - ./.envs/.production/.django
       - ./.envs/.production/.postgres
@@ -62,7 +63,10 @@ services:
     image: gremlin_gplv3_production_flower
     command: /start-flower
 
-  
+  tika:
+    image: lexpredict/tika-server
+    command: /start-tika
+
   awscli:
     build:
       context: .
