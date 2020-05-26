@@ -92,7 +92,7 @@ def renumber_pipeline_steps_on_create_or_update(sender, instance: PipelineStep, 
 
 					# If this was a pre-existing step moved from inside the pipeline, renumber once we get to index
 					# of its original position (old_number).
-					if old_number is not -1:
+					if old_number != -1:
 						print("Not moved pipelineStep... renumber")
 
 						print(f"old_number is not -1: (it's {old_number}). This means this was moved "

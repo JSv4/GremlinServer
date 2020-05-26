@@ -306,7 +306,7 @@ class Document(models.Model):
 
 	#don't want to return shortText by default as it can go on for a looooong, loooong time.
 	def shortText(self):
-		return self.rawText[0:199] if (self.rawText and len(self.rawText)>200) else self.rawText
+		return self.rawText()[0:199] if (self.rawText() and len(self.rawText())>200) else self.rawText()
 
 	def __str__(self):
 		return self.name

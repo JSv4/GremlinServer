@@ -26,7 +26,7 @@ class ScriptLogger:
 	def info(self, message):
 		try:
 			labelledMessage = "INFO - Job {0} / Step {1} / Script {2}: {3}".format(self.__jobId, self.__stepId, self.__scriptId, message)
-			self.log = ((self.log + "\n") if self.log is not "" else "") + labelledMessage
+			self.log = ((self.log + "\n") if self.log != "" else "") + labelledMessage
 			logger.info(labelledMessage)
 		except Exception as e:
 			logger.error("Error trying to store user script logs: {0}".format(e))
@@ -34,7 +34,7 @@ class ScriptLogger:
 	def error(self, message):
 		try:
 			labelledMessage = "ERROR - Job {0} / Step {1} / Script {2}: {3}".format(self.__jobId, self.__stepId, self.__scriptId, message)
-			self.log = ((self.log + "\n") if self.log is not "" else "") + labelledMessage
+			self.log = ((self.log + "\n") if self.log != "" else "") + labelledMessage
 			logger.error(labelledMessage)
 
 		except Exception as e:
@@ -43,7 +43,7 @@ class ScriptLogger:
 	def warn(self, message):
 		try:
 			labelledMessage = "WARNING - Job {0} / Step {1} / Script {2}: {3}".format(self.__jobId, self.__stepId, self.__scriptId, message)
-			self.log = ((self.log + "\n") if self.log is not "" else "") + labelledMessage
+			self.log = ((self.log + "\n") if self.log != "" else "") + labelledMessage
 			logger.warning(labelledMessage)
 
 		except Exception as e:
