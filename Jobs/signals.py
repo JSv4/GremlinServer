@@ -1,6 +1,7 @@
 from celery import chain
 import json
 import operator
+from django.db import transaction
 
 from .tasks.tasks import runJob, installPackages, runPythonScriptSetup, \
 	createNewPythonPackage, extractTextForDoc, updatePythonPackage, deletePythonPackage
@@ -18,6 +19,13 @@ def process_doc_on_create(sender, instance, created, **kwargs):
 
 	if created:
 		extractTextForDoc.delay(instance.id)
+
+# https://stackoverflow.com/questions/53503460/possible-race-condition-between-django-post-save-signal-and-celery-task
+# https://stackoverflow.com/questions/45276828/handle-post-save-signal-in-celery
+def process_doc_on_create_atomic(sender, instance, created, **kwargs):
+
+    if created:
+        transaction.on_commit(lambda: extractTextForDoc.delay(instance.id))
 
 
 def renumber_pipeline_steps_on_create_or_update(sender, instance: PipelineStep, **kwargs):

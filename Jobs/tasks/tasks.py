@@ -8,7 +8,8 @@ from django.db import connection
 from config import celery_app
 from ..models import Job, Document, PipelineStep, Result, PythonScript, ResultInputData, ResultData, DocumentText
 from celery import chain, group, chord
-from .task_helpers import exec_with_return, returnScriptMethod, buildScriptInput, transformStepInputs
+from .task_helpers import exec_with_return, returnScriptMethod, buildScriptInput, \
+    transformStepInputs, createFunctionFromString
 from .taskLoggers import JobLogger, TaskLogger
 from shutil import copyfileobj, rmtree
 from django.conf import settings
@@ -22,6 +23,7 @@ import io
 import docx2txt
 import uuid
 import json
+import time
 import jsonschema
 
 # Tika Extraction Imports
@@ -113,7 +115,7 @@ def runJob(jobId=-1, endStep=-1, *args, **kwargs):
             jobDocs = Document.objects.filter(jobs=jobId)
             log += "\nJob has {0} docs.".format(len(jobDocs))
 
-            celery_jobs = []
+            celery_jobs=[]
 
             # Start with a job to ensure all of the documents are extracted
             # You can't just use a group here, however, as we want to chain further jobs to it and that will
@@ -129,7 +131,7 @@ def runJob(jobId=-1, endStep=-1, *args, **kwargs):
             # Build the celery job pipeline (Note there may be some inefficiencies in how this is constructed)
             # Will fix in future release.
             for step in pipeline_steps:
-
+                celery_jobs.append(prepareScript.s(jobId=jobId, scriptId=step.script.id))
                 if step.script.type == PythonScript.RUN_ON_JOB_ALL_DOCS_PARALLEL:
                     celery_jobs.append(chord(group(
                         [applyPythonScriptToJobDoc.s(docId=d.id, jobId=jobId, stepId=step.id, scriptId=step.script.id)
@@ -199,6 +201,7 @@ def stopPipeline(*args, jobId=-1, **kwargs):
 # processingTask is assumed to take arguments job and doc
 @celery_app.task(base=FaultTolerantTask, name="Celery Wrapper for Python Job Doc Task")
 def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, stepId=-1, scriptId=-1, **kwargs):
+
     log = "\napplyPythonScriptToJobDoc - args is:{0}".format(args)
     jobLogger = JobLogger(jobId=jobId, name="applyPythonScriptToJobDoc")
 
@@ -223,6 +226,7 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, stepId=-1, scriptId=-1,
         doc = Document.objects.get(id=docId)
         job = Job.objects.get(id=jobId)
         step = PipelineStep.objects.get(id=stepId)
+        script = PythonScript.objects.get(id=scriptId)
 
         # Check that the provided doc file type is compatible with the given script
         try:
@@ -263,7 +267,28 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, stepId=-1, scriptId=-1,
         # away the underlying django / celery system and also makes it harder to do bad
         # things
         try:
-            docBytes = open(doc.file.name, 'rb').read()
+
+            usingS3 = (settings.DEFAULT_FILE_STORAGE == "gremlin_gplv3.utils.storages.MediaRootS3Boto3Storage")
+            logger.info("UsingS3: {0}".format(usingS3))
+
+            # if the rawText field is still empty... assume that extraction hasn't happened.
+            # for some file types (like image-only pdfs), this will not always be right.
+            if doc.file:
+
+                # if we're using Boto S3, we need to interact with the files differently
+                if usingS3:
+                    filename = doc.file.name
+                    logger.info(str(filename))
+
+                else:
+                    logger.info("Not using S3")
+                    filename = doc.file.path
+
+                # Load the file object from Django storage backend
+                docBytes = default_storage.open(filename, mode='rb').read()
+                logger.info("File object is:")
+                logger.info(docBytes)
+
         except:
             docBytes = None
 
@@ -331,7 +356,7 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, stepId=-1, scriptId=-1,
         log += f"\nStarting script for job ID #{job.id} (step # {step.step_number} on doc ID #{doc.id}) with inputs: {scriptInputs}"
 
         try:
-            finished, message, data, fileBytes, file_ext = returnScriptMethod(scriptId)(*args,
+            finished, message, data, fileBytes, file_ext = createFunctionFromString(script.script)(*args,
                                                                                         docType=doc.type,
                                                                                         docText=doc.rawText,
                                                                                         docName=doc.name,
@@ -410,6 +435,7 @@ def applyPythonScriptToJob(*args, jobId=-1, stepId=-1, scriptId=-1, **kwargs):
     try:
         job = Job.objects.get(id=jobId)
         step = PipelineStep.objects.get(id=stepId)
+        script = PythonScript.objects.get(id=scriptId)
 
         # Build json inputs for job, which are built from both step settings in the job settings and
         # and the step_settings store.
@@ -481,7 +507,7 @@ def applyPythonScriptToJob(*args, jobId=-1, stepId=-1, scriptId=-1, **kwargs):
         try:
             # call the script with the appropriate Gremlin / Django objects already loaded (don't want the user
             # interacting with underlying Django infrastructure.
-            finished, message, data, fileBytes, file_ext = returnScriptMethod(scriptId)(*args,
+            finished, message, data, fileBytes, file_ext = createFunctionFromString(script.script)(*args,
                                                                                         job=job,
                                                                                         step=step,
                                                                                         logger=scriptLogger,
@@ -642,6 +668,59 @@ def resultsMerge(*args, jobId=-1, stepId=-1, **kwargs):
 
     return JOB_SUCCESS
 
+@celery_app.task(base=FaultTolerantTask, name="Ensure Script is Available")
+def prepareScript(*args, jobId=-1, scriptId=-1, **kwargs):
+
+    try:
+        if len(args) > 0 and not jobSucceeded(args[0]):
+            message = "{0} - Preceding task failed for job Id {1}. Message: {2}".format(JOB_FAILED_DID_NOT_FINISH, jobId,
+                                                                                        args[0])
+            stopJob(jobId=jobId, status=message, error=True)
+            return message
+
+        script = PythonScript.objects.get(id=scriptId)
+        packages = script.required_packages.split("\n")
+
+        if len(packages) > 0:
+            logging.info(f"Script requires {len(packages)} packages. "
+                         f"Ensure required packages are installed:\n {script.required_packages}")
+
+            p = subprocess.Popen([sys.executable, "-m", "pip", "install", *packages], stdout=subprocess.PIPE)
+            out, err = p.communicate()
+
+            # Need to escape out the escape chars in the resulting string: https://stackoverflow.com/questions/6867588/how-to-convert-escaped-characters
+            out = codecs.getdecoder("unicode_escape")(out)[0]
+            if err:
+                err = codecs.getdecoder("unicode_escape")(err)[0]
+                logging.error(f"Errors from script pre check: \n{err}")
+
+            logging.info(f"Results of script pre check: \n{out}")
+
+        setupScript = script.setup_script
+        if setupScript != "":
+
+            lines = setupScript.split("\n")
+
+            for line in lines:
+
+                p = subprocess.Popen(line.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                out, err = p.communicate()
+
+                # Need to escape out the escape chars in the resulting string: https://stackoverflow.com/questions/6867588/how-to-convert-escaped-characters
+                out = codecs.getdecoder("unicode_escape")(out)[0]
+                if err:
+                    err = codecs.getdecoder("unicode_escape")(err)[0]
+                    logging.error(f"Errors from script pre check: \n{err}")
+
+                logging.info(f"Results of script pre check: \n{out}")
+
+        return JOB_SUCCESS
+
+    except Exception as e:
+        message = "{0} - Error trying to ensure script is setup: {1}".format(
+            JOB_FAILED_INVALID_DOC_ID, e)
+        logger.error(message)
+        return message
 
 # Task to install a python package list (same as you would a la "pip install package1 package 2 package3 package...")
 @celery_app.task(base=FaultTolerantTask, name="Install Python Package")
@@ -763,22 +842,26 @@ def deletePythonPackage(scriptName, *args, **kwargs):
 
 @celery_app.task(base=FaultTolerantTask, name="Extract Document Text")
 def extractTextForDoc(docId=-1):
+    logging.info(f"Try to extract doc for docId={docId}")
     if docId == -1:
         message = "{0} - No doc ID was specified for extractTextForDoc. You must specify a docId.".format(
             JOB_FAILED_INVALID_DOC_ID)
         logger.error(message)
         return message
 
-    elif len(Document.objects.filter(id=docId)) != 1:
-        message = "{0} - {1} {2}".format(JOB_FAILED_INVALID_DOC_ID, "There appears to be no doc with docId = ", docId)
-        logger.error(message)
-        return message
-
     else:
         try:
 
+            # I believe the issue here is the task fires before the file is saved due to increased latency
+            # of S3 and my network
+            # See here: https://stackoverflow.com/questions/11539152/django-matching-query-does-not-exist-after-object-save-in-celery-task
+
+            # logger.info("Wait!")
+            # time.sleep(3000)
+
             d = Document.objects.get(id=docId)
-            usingS3 = (settings.DEFAULT_FILE_STORAGE == 'storages.backends.s3boto3.S3Boto3Storage')
+            logger.info(f"Doc retrieved: {d}")
+            usingS3 = (settings.DEFAULT_FILE_STORAGE == "gremlin_gplv3.utils.storages.MediaRootS3Boto3Storage")
             logger.info("UsingS3: {0}".format(usingS3))
 
             # if the rawText field is still empty... assume that extraction hasn't happened.
@@ -1020,7 +1103,7 @@ def packageJobResults(*args, jobId=-1, **kwargs):
         job = Job.objects.get(id=jobId)
         logger.info("Job #{0} has {1} step results and {2} results total.".format(jobId, len(stepResults), len(allResults)))
 
-        usingS3 = (settings.DEFAULT_FILE_STORAGE == 'storages.backends.s3boto3.S3Boto3Storage')
+        usingS3 = (settings.DEFAULT_FILE_STORAGE == "gremlin_gplv3.utils.storages.MediaRootS3Boto3Storage")
         jobLogger.info("UsingS3: {0}".format(usingS3))
 
         resultsDir = "./jobs_data/%s/" % (jobId)

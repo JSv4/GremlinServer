@@ -196,7 +196,7 @@ class Job(models.Model):
 	job_inputs = models.TextField("Input Json", blank=True, default="")
 
 	# Related Files
-	file = models.FileField("Output File Zip", upload_to='jobs_data/results/', blank=True, null=True)
+	file = models.FileField("Output File Zip", upload_to='data/jobs_data/results/', blank=True, null=True)
 
 	def __str__(self):
 		return self.name
@@ -294,7 +294,7 @@ class Document(models.Model):
 	pageCount = models.IntegerField("Number of Pages", blank=False, default=1)
 	textObj = models.ForeignKey(DocumentText, null=True, on_delete=models.CASCADE)
 	type = models.CharField("File Extension", max_length=5, default="", blank=False)
-	file = models.FileField("Original File", upload_to='uploads/contracts/')
+	file = models.FileField("Original File", upload_to='data/uploads/docs/')
 	extracted = models.BooleanField("Extracted Successfully", default=False)
 	results = models.ManyToManyField("Result", blank=True)
 	jobs = models.ManyToManyField(Job, blank=True)
@@ -365,7 +365,7 @@ class Result(models.Model):
 
 	# Outputs
 	output_data = models.ForeignKey('ResultData', null=True, on_delete=models.SET_NULL)
-	file = models.FileField("Results File", upload_to='results/results/', blank=True, null=True)
+	file = models.FileField("Results File", upload_to='data/results/results/', blank=True, null=True)
 
 	def has_file(self):
 		if self.file:

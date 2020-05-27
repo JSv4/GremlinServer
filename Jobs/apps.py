@@ -13,7 +13,8 @@ class JobsConfig(AppConfig):
 
         from .signals import run_job_on_queued, process_doc_on_create, setup_python_script_on_create, \
             update_python_script_on_save, remove_python_script_on_delete, update_pipeline_schema, \
-            renumber_pipeline_steps_on_delete, renumber_pipeline_steps_on_create_or_update
+            renumber_pipeline_steps_on_delete, renumber_pipeline_steps_on_create_or_update, \
+            process_doc_on_create_atomic
         from .models import Job, Document, PythonScript, PipelineStep
 
         # After a pipeline step is deleted, regenerate the schema for the pipeline
@@ -36,7 +37,8 @@ class JobsConfig(AppConfig):
         post_save.connect(run_job_on_queued, sender=Job, dispatch_uid="run_job_on_queued")
 
         # When a new doc is created, queue a text extract job
-        post_save.connect(process_doc_on_create, sender=Document, dispatch_uid="process_doc_on_create")
+        #post_save.connect(process_doc_on_create, sender=Document, dispatch_uid="process_doc_on_create")
+        post_save.connect(process_doc_on_create_atomic, sender=Document, dispatch_uid="process_doc_on_create_atomic")
 
         #When a python script is created, run installer task for that script
         post_save.connect(setup_python_script_on_create, sender=PythonScript,
