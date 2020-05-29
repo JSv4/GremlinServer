@@ -64,8 +64,9 @@ services:
     command: /start-flower
 
   tika:
-    image: lexpredict/tika-server
-    command: /start-tika
+    image: lexpredict/tika-server:latest
+    ports:
+      - 9998:9998
 
   awscli:
     build:

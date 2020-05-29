@@ -47,8 +47,6 @@ services:
     depends_on:
       - redis
       - postgres
-    volumes:
-      - .:/app
 
     ports: []
     command: /start-celeryworker
@@ -73,5 +71,8 @@ services:
     command: /start-flower
 
   tika:
-    image: lexpredict/tika-server
-    command: /start-tika
+    image: apache/tika:1.24.1
+    container_name: tika
+    ports:
+      - 9998:9998
+

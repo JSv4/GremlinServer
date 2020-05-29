@@ -1,6 +1,7 @@
 from __future__ import absolute_import, unicode_literals
 
 import zipfile
+import traceback
 from zipfile import ZipFile
 from django.core.files.base import ContentFile
 from django.db import connection
@@ -8,6 +9,7 @@ from django.db import connection
 from config import celery_app
 from ..models import Job, Document, PipelineStep, Result, PythonScript, ResultInputData, ResultData, DocumentText
 from celery import chain, group, chord
+from celery.signals import celeryd_after_setup
 from .task_helpers import exec_with_return, returnScriptMethod, buildScriptInput, \
     transformStepInputs, createFunctionFromString
 from .taskLoggers import JobLogger, TaskLogger
@@ -51,6 +53,103 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 step_logger = logging.getLogger('task_db')
 job_logger = logging.getLogger('job_db')
+
+# One of the challenges of switching to a docker-based deploy is that system env isn't persisted and
+# The whole goal of this system is to dynamically provision and reprovision scripts into a data processing
+# pipeline. Sooo.... current workaround (to increase performance on *script* run is to preprocess all of the setup
+# on startup. Currently the approach is super naive. Doesn't do any checking to see if this is necessary so could be duplicative
+@celeryd_after_setup.connect
+def setup_direct_queue(sender, instance, **kwargs):
+
+    logging.info(f"Celery worker is up.\nSender:{sender}.\nInstance:\n {instance}")
+
+    try:
+        scripts=PythonScript.objects.all()
+
+        # For each script, run the setup code...
+        for script in scripts:
+
+            #create module on FS
+            logging.info(f"updatePythonPackage for script: {script}")
+
+            newModuleDirectory = "./Jobs/tasks/scripts/{0}".format(script.name)
+            logging.info(f"newModuleDirectory is: {newModuleDirectory}")
+
+            # Create directories for cluster results if it doesn't exist (It should)
+            # TODO - log some kind of error if there is no directory
+            if not os.path.exists(newModuleDirectory):
+                logger.warning(
+                    "On attempt to update ScriptID {0}, expected directory does not exist: {1}".format(scriptId,
+                                                                                                       newModuleDirectory))
+                os.makedirs(newModuleDirectory)
+
+            initFile = newModuleDirectory + "/__init__.py"
+            if not os.file.exists(initFile):
+
+                with open(newModuleDirectory + "/__init__.py", "w+") as file1:
+                    file1.write("#Created by Gremlin")
+
+            pythonFileName = "{0}/{1}.py".format(newModuleDirectory, script.name)
+
+            with open(pythonFileName, "w+") as file1:
+                file1.write(script.script)
+
+            packages = script.required_packages.split("\n")
+            if len(packages) > 0:
+                logging.info(f"Script requires {len(packages)} packages. "
+                             f"Ensure required packages are installed:\n {script.required_packages}")
+
+                p = subprocess.Popen([sys.executable, "-m", "pip", "install", *packages], stdout=subprocess.PIPE)
+                out, err = p.communicate()
+
+                # Need to escape out the escape chars in the resulting string: https://stackoverflow.com/questions/6867588/how-to-convert-escaped-characters
+                out = codecs.getdecoder("unicode_escape")(out)[0]
+                if err:
+                    err = codecs.getdecoder("unicode_escape")(err)[0]
+                    logging.error(f"Errors from script pre check: \n{err}")
+
+                logging.info(f"Results of python installer for {script.name} \n{out}")
+
+            setupScript = script.setup_script
+            if setupScript != "":
+
+                logging.info(f"Script {script.name} has setupScript: {setupScript}")
+
+                lines = setupScript.split("\n")
+
+                for line in lines:
+
+                    p = subprocess.Popen(line.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    out, err = p.communicate()
+
+                    # Need to escape out the escape chars in the resulting string: https://stackoverflow.com/questions/6867588/how-to-convert-escaped-characters
+                    out = codecs.getdecoder("unicode_escape")(out)[0]
+                    if err:
+                        err = codecs.getdecoder("unicode_escape")(err)[0]
+                        logging.error(f"Errors from script pre check: \n{err}")
+
+                    logging.info(f"Results of bash install script for {script.name}: \n{out}")
+
+            envVariables = script.env_variables
+            if envVariables != "":
+                logging.info(f"It appears there are env variables: {envVariables}")
+
+                vars = {}
+                try:
+                    vars = json.loads(envVariables)
+                    logging.info(f"Parsed following env var structure: {vars}")
+                    logging.info(f"Var type is: {type(vars)}")
+                except:
+                    logging.warning("Unable to parse env variables.")
+                    pass
+
+                for e, v in vars.items():
+                    logging.info(f"Adding env_var {e} with value {v}")
+                    os.environ[e] = v
+
+    except Exception as e:
+        logging.error(f"Error setting up celery worker on celeryd_init.\nSender:{sender}.\n"
+                      f"Instance:\n {instance} \nError: \n{e}")
 
 
 class FaultTolerantTask(celery.Task):
@@ -286,8 +385,6 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, stepId=-1, scriptId=-1,
 
                 # Load the file object from Django storage backend
                 docBytes = default_storage.open(filename, mode='rb').read()
-                logger.info("File object is:")
-                logger.info(docBytes)
 
         except:
             docBytes = None
@@ -357,14 +454,19 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, stepId=-1, scriptId=-1,
 
         try:
             finished, message, data, fileBytes, file_ext = createFunctionFromString(script.script)(*args,
-                                                                                        docType=doc.type,
-                                                                                        docText=doc.rawText,
-                                                                                        docName=doc.name,
-                                                                                        docByteObj=docBytes,
-                                                                                        logger=scriptLogger,
-                                                                                        scriptInputs=scriptInputs,
-                                                                                        previousData=transformed_data,
-                                                                                        **kwargs)
+                                                docType=doc.type,
+                                                docText=doc.rawText(),
+                                                docName=doc.name,
+                                                docByteObj=docBytes,
+                                                logger=scriptLogger,
+                                                scriptInputs=scriptInputs,
+                                                previousData=transformed_data,
+                                                **kwargs)
+
+            logging.info(f"Finished {finished}")
+            logging.info(f"Message {message}")
+            logging.info(f"data {data}")
+            logging.info(f"file extension {file_ext} of type {type(file_ext)}")
 
             # take file object and save to filesystem provided it is not none and plausibly could be an extension
             if file_ext and len(file_ext) > 1:
@@ -392,6 +494,9 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, stepId=-1, scriptId=-1,
                 return JOB_FAILED_DID_NOT_FINISH
 
         except Exception as err:
+
+            jobLogger.error("Error on running JobDoc Script:")
+            jobLogger.error(traceback.print_exc())
 
             message = "{0} - Error thrown by user script in applyPythonScriptToJobDoc for job #{1} doc #{2} script #{3}: {4}".format(
                 JOB_FAILED_DID_NOT_FINISH, jobId, docId, scriptId, err)
@@ -515,6 +620,11 @@ def applyPythonScriptToJob(*args, jobId=-1, stepId=-1, scriptId=-1, **kwargs):
                                                                                         previousData=transformed_data,
                                                                                         **kwargs)
 
+            logging.info(f"Finished {finished}")
+            logging.info(f"Message {message}")
+            logging.info(f"data {data}")
+            logging.info(f"file extension {file_ext} of type {type(file_ext)}")
+
             # take file object and save to filesystem provided it is not none and plausibly could be an extension
             if file_ext and len(file_ext) > 1:
                 file_data = ContentFile(fileBytes)
@@ -547,6 +657,9 @@ def applyPythonScriptToJob(*args, jobId=-1, stepId=-1, scriptId=-1, **kwargs):
                 return JOB_FAILED_DID_NOT_FINISH
 
         except Exception as err:
+
+            jobLogger.error("Error on running Job Script:")
+            jobLogger.error(traceback.print_exc())
 
             message = "{0} - Error thrown by user script in applyPythonScriptToJob for job #{1} script #{2}: {3}".format(
                 JOB_FAILED_DID_NOT_FINISH, jobId, scriptId, err)
@@ -714,6 +827,22 @@ def prepareScript(*args, jobId=-1, scriptId=-1, **kwargs):
 
                 logging.info(f"Results of script pre check: \n{out}")
 
+        envVariables = script.env_variables
+        if envVariables != "":
+            logging.info(f"It appears there are env variables: {envVariables}")
+
+            vars = {}
+            try:
+                vars = json.loads(envVariables)
+                logging.info(f"Parsed following env var structure: {vars}")
+            except:
+                logging.warning("Unable to parse env variables.")
+                pass
+
+            for e, v in vars.items():
+                logging.info(f"Adding env_var {e} with value {v}")
+                os.environ[e] = v
+
         return JOB_SUCCESS
 
     except Exception as e:
@@ -843,6 +972,7 @@ def deletePythonPackage(scriptName, *args, **kwargs):
 @celery_app.task(base=FaultTolerantTask, name="Extract Document Text")
 def extractTextForDoc(docId=-1):
     logging.info(f"Try to extract doc for docId={docId}")
+
     if docId == -1:
         message = "{0} - No doc ID was specified for extractTextForDoc. You must specify a docId.".format(
             JOB_FAILED_INVALID_DOC_ID)
@@ -852,41 +982,40 @@ def extractTextForDoc(docId=-1):
     else:
         try:
 
+            logger.info("Attempting to retrieve doc")
             # I believe the issue here is the task fires before the file is saved due to increased latency
             # of S3 and my network
             # See here: https://stackoverflow.com/questions/11539152/django-matching-query-does-not-exist-after-object-save-in-celery-task
 
-            # logger.info("Wait!")
-            # time.sleep(3000)
-
             d = Document.objects.get(id=docId)
-            logger.info(f"Doc retrieved: {d}")
+            logger.info(f"Doc model retrieved: {d}")
             usingS3 = (settings.DEFAULT_FILE_STORAGE == "gremlin_gplv3.utils.storages.MediaRootS3Boto3Storage")
             logger.info("UsingS3: {0}".format(usingS3))
 
             # if the rawText field is still empty... assume that extraction hasn't happened.
             # for some file types (like image-only pdfs), this will not always be right.
-            if not d.rawText:
+            if not d.textObj:
+
+                logger.info("No rawText detected... attempt to extract")
 
                 # if we're using Boto S3, we need to interact with the files differently
                 if usingS3:
 
                     logger.info("Using S3")
                     filename = d.file.name
-                    logger.info(str(filename))
-                    name, file_extension = os.path.splitext(filename)
 
                 else:
 
                     logger.info("Not using S3")
                     filename = d.file.path
-                    logger.info(str(filename))
-                    name, file_extension = os.path.splitext(filename)
-                    logger.info("file_extension is: {0}".format(file_extension))
+
+                logger.info(str(filename))
+                name, file_extension = os.path.splitext(filename)
+                logger.info("file_extension is: {0}".format(file_extension))
 
                 # Load the file object from Django storage backend
                 file_object = default_storage.open(filename, mode='rb')
-                logger.info("File object is:")
+                logger.info("file_object loaded")
 
                 if file_extension == ".docx":
 
@@ -1134,8 +1263,11 @@ def packageJobResults(*args, jobId=-1, **kwargs):
 
                 zip_filename = os.path.basename(filename)
                 jobLogger.info(zip_filename)
-                jobResultsZipData.write(filename, "./Step {0}/{1}".format(r.job_step.step_number, zip_filename))
-                jobLogger.info("	--> DONE")
+
+                with default_storage.open(filename, mode='rb') as file:
+                    newChildPath = "./Step {0}/{1}".format(r.job_step.step_number, zip_filename)
+                    jobResultsZipData.write(file.read(), newChildPath)
+                    jobLogger.info("	--> DONE")
 
             else:
                 jobLogger.info("There is not file object associated with this result.")
@@ -1176,9 +1308,8 @@ def packageJobResults(*args, jobId=-1, **kwargs):
             type='JOB',
             output_data=outputObj
         )
-
-        result.save()
         result.file.save(resultFilename, file_data)
+        result.save()
 
         job.file.save(resultFilename, file_data)
         job.save()

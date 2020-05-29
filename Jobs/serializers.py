@@ -112,6 +112,7 @@ class PythonScriptSerializer(serializers.ModelSerializer):
             'description',
             'required_packages',
             'setup_script',
+            'env_variables',
             'installer_log',
             'setup_log',
             'owner'
