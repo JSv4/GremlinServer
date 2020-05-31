@@ -1,17 +1,19 @@
 from rest_framework_bulk import BulkSerializerMixin, BulkListSerializer
 
-from .models import Document, Job, Result, PythonScript, PipelineStep, Pipeline, TaskLogEntry, JobLogEntry
+from .models import Document, Job, Result, PythonScript, PipelineStep, \
+    Pipeline, TaskLogEntry, JobLogEntry, ResultInputData, ResultData
 from rest_framework import serializers
 
 class DocumentSerializer(serializers.ModelSerializer):
 
     owner = serializers.ReadOnlyField(source='owner.username')
+    job = serializers.PrimaryKeyRelatedField(many=False, queryset=Job.objects.all())
 
     class Meta:
         model = Document
 
-        fields = ['id', 'name', 'shortText', 'file', 'type', 'extracted', 'jobs', 'results', 'owner']
-        read_only_fields = ['id', 'type', 'owner']
+        fields = ['id', 'name', 'shortText', 'file', 'type', 'extracted', 'job', 'owner']
+        read_only_fields = ['id', 'type', 'owner', 'shortText']
 
 class PipelineSerializer(serializers.ModelSerializer):
 
@@ -26,17 +28,17 @@ class PipelineSerializer(serializers.ModelSerializer):
 class JobSerializer(serializers.ModelSerializer):
 
     owner = serializers.ReadOnlyField(source='owner.username')
+    pipeline = serializers.PrimaryKeyRelatedField(many=False, queryset=Pipeline.objects.all())
 
     class Meta:
         model = Job
 
         fields = ['id', 'name', 'creation_time', 'pipeline', 'queued', 'started',
                   'error', 'finished', 'status', 'job_inputs', 'file',
-                  'completed_tasks','task_count','started_steps', 'type', 'owner']
+                  'completed_tasks','task_count', 'type', 'owner']
 
         read_only_fields = ['id', 'creation_time', 'started', 'error', 'finished',
-                            'status', 'file','completed_tasks','task_count',
-                            'started_steps', 'type', 'owner']
+                            'status', 'file','completed_tasks','task_count', 'type', 'owner']
 
 class PipelineStepListSerializer(serializers.ListSerializer):
 
@@ -59,6 +61,8 @@ class PipelineStepListSerializer(serializers.ListSerializer):
 class PipelineStepSerializer(serializers.ModelSerializer):
 
     owner = serializers.ReadOnlyField(source='owner.username')
+    script = serializers.PrimaryKeyRelatedField(many=False, queryset= PythonScript.objects.all())
+    parent_pipeline = serializers.PrimaryKeyRelatedField(many=False, queryset= Pipeline.objects.all())
 
     class Meta:
         model = PipelineStep
@@ -69,6 +73,11 @@ class PipelineStepSerializer(serializers.ModelSerializer):
 class ResultSummarySerializer(serializers.ModelSerializer):
 
     owner = serializers.ReadOnlyField(source='owner.username')
+    job = serializers.PrimaryKeyRelatedField(many=False, queryset=Job.objects.all())
+    job_step = serializers.PrimaryKeyRelatedField(many=False, queryset= PipelineStep.objects.all())
+    doc = serializers.PrimaryKeyRelatedField(many=False, queryset=Document.objects.all())
+    input_data = serializers.PrimaryKeyRelatedField(many=False, queryset=ResultInputData.objects.all())
+    output_data = serializers.PrimaryKeyRelatedField(many=False, queryset=ResultData.objects.all())
 
     class Meta:
         model = Result
@@ -81,6 +90,11 @@ class ResultSummarySerializer(serializers.ModelSerializer):
 class ResultSerializer(serializers.ModelSerializer):
 
     owner = serializers.ReadOnlyField(source='owner.username')
+    job = serializers.PrimaryKeyRelatedField(many=False, queryset=Job.objects.all())
+    doc = serializers.PrimaryKeyRelatedField(many=False, queryset=Document.objects.all())
+    job_step = serializers.PrimaryKeyRelatedField(many=False, queryset=PipelineStep.objects.all())
+    input_data = serializers.PrimaryKeyRelatedField(many=False, queryset=ResultInputData.objects.all())
+    output_data = serializers.PrimaryKeyRelatedField(many=False, queryset=ResultData.objects.all())
 
     class Meta:
         model = Result
@@ -142,6 +156,7 @@ class PythonScriptSummarySerializer(serializers.ModelSerializer):
 class LogSerializer(serializers.ModelSerializer):
 
     owner = serializers.ReadOnlyField(source='owner.username')
+    result = serializers.PrimaryKeyRelatedField(many=False, queryset=Result.objects.all())
 
     class Meta:
         model = TaskLogEntry
@@ -152,9 +167,10 @@ class LogSerializer(serializers.ModelSerializer):
 class JobLogSerializer(serializers.ModelSerializer):
 
     owner = serializers.ReadOnlyField(source='owner.username')
+    job = serializers.PrimaryKeyRelatedField(many=False, queryset=Job.objects.all())
 
     class Meta:
         model = JobLogEntry
 
-        fields = ["id","logger_name","level","msg","create_datetime","job", 'owner']
-        read_only_fields=["id","logger_name","level","msg","create_datetime","job", 'owner']
+        fields = ["id","logger_name","level","msg","create_datetime"]
+        read_only_fields=["id","logger_name","level","msg","create_datetime"]

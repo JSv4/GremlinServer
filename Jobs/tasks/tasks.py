@@ -7,7 +7,7 @@ from django.core.files.base import ContentFile
 from django.db import connection
 
 from config import celery_app
-from ..models import Job, Document, PipelineStep, Result, PythonScript, ResultInputData, ResultData, DocumentText
+from ..models import Job, Document, PipelineStep, Result, PythonScript, ResultInputData, ResultData
 from celery import chain, group, chord
 from celery.signals import celeryd_after_setup
 from .task_helpers import exec_with_return, returnScriptMethod, buildScriptInput, \
@@ -69,30 +69,30 @@ def setup_direct_queue(sender, instance, **kwargs):
         # For each script, run the setup code...
         for script in scripts:
 
-            #create module on FS
-            logging.info(f"updatePythonPackage for script: {script}")
-
-            newModuleDirectory = "./Jobs/tasks/scripts/{0}".format(script.name)
-            logging.info(f"newModuleDirectory is: {newModuleDirectory}")
-
-            # Create directories for cluster results if it doesn't exist (It should)
-            # TODO - log some kind of error if there is no directory
-            if not os.path.exists(newModuleDirectory):
-                logger.warning(
-                    "On attempt to update ScriptID {0}, expected directory does not exist: {1}".format(scriptId,
-                                                                                                       newModuleDirectory))
-                os.makedirs(newModuleDirectory)
-
-            initFile = newModuleDirectory + "/__init__.py"
-            if not os.file.exists(initFile):
-
-                with open(newModuleDirectory + "/__init__.py", "w+") as file1:
-                    file1.write("#Created by Gremlin")
-
-            pythonFileName = "{0}/{1}.py".format(newModuleDirectory, script.name)
-
-            with open(pythonFileName, "w+") as file1:
-                file1.write(script.script)
+            # #create module on FS
+            # logging.info(f"updatePythonPackage for script: {script}")
+            #
+            # newModuleDirectory = "./Jobs/tasks/scripts/{0}".format(script.name)
+            # logging.info(f"newModuleDirectory is: {newModuleDirectory}")
+            #
+            # # Create directories for cluster results if it doesn't exist (It should)
+            # # TODO - log some kind of error if there is no directory
+            # if not os.path.exists(newModuleDirectory):
+            #     logger.warning(
+            #         "On attempt to update ScriptID {0}, expected directory does not exist: {1}".format(scriptId,
+            #                                                                                            newModuleDirectory))
+            #     os.makedirs(newModuleDirectory)
+            #
+            # initFile = newModuleDirectory + "/__init__.py"
+            # if not os.file.exists(initFile):
+            #
+            #     with open(newModuleDirectory + "/__init__.py", "w+") as file1:
+            #         file1.write("#Created by Gremlin")
+            #
+            # pythonFileName = "{0}/{1}.py".format(newModuleDirectory, script.name)
+            #
+            # with open(pythonFileName, "w+") as file1:
+            #     file1.write(script.script)
 
             packages = script.required_packages.split("\n")
             if len(packages) > 0:
@@ -211,7 +211,7 @@ def runJob(jobId=-1, endStep=-1, *args, **kwargs):
             log += "\nTruncated job pipeline due to endStep flag has {0} steps: {1}".format(len(pipeline_steps),
                                                                                             pipeline_steps)
 
-            jobDocs = Document.objects.filter(jobs=jobId)
+            jobDocs = Document.objects.filter(job=jobId)
             log += "\nJob has {0} docs.".format(len(jobDocs))
 
             celery_jobs=[]
@@ -230,7 +230,7 @@ def runJob(jobId=-1, endStep=-1, *args, **kwargs):
             # Build the celery job pipeline (Note there may be some inefficiencies in how this is constructed)
             # Will fix in future release.
             for step in pipeline_steps:
-                celery_jobs.append(prepareScript.s(jobId=jobId, scriptId=step.script.id))
+                # celery_jobs.append(prepareScript.s(jobId=jobId, scriptId=step.script.id))
                 if step.script.type == PythonScript.RUN_ON_JOB_ALL_DOCS_PARALLEL:
                     celery_jobs.append(chord(group(
                         [applyPythonScriptToJobDoc.s(docId=d.id, jobId=jobId, stepId=step.id, scriptId=step.script.id)
@@ -389,14 +389,6 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, stepId=-1, scriptId=-1,
         except:
             docBytes = None
 
-        if step not in job.started_steps.all():
-            try:
-                job.started_steps.add(step)
-            except Exception as e:
-                message = "Error trying to add start step: {0}".format(step)
-                log += "\n" + message
-
-        job.save()
 
         # If there was a preceding step, grab the data from that step and pass it as an input, otherwise, this is a
         # first (possibly only) step and we want to pass in job settings.
@@ -455,7 +447,7 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, stepId=-1, scriptId=-1,
         try:
             finished, message, data, fileBytes, file_ext = createFunctionFromString(script.script)(*args,
                                                 docType=doc.type,
-                                                docText=doc.rawText(),
+                                                docText=doc.rawText,
                                                 docName=doc.name,
                                                 docByteObj=docBytes,
                                                 logger=scriptLogger,
@@ -579,10 +571,6 @@ def applyPythonScriptToJob(*args, jobId=-1, stepId=-1, scriptId=-1, **kwargs):
 
         log += "\nData transform complete"
 
-        # Log in the DB that this step started
-        if step not in job.started_steps.all():
-            job.started_steps.add(step)
-
         result = Result.objects.create(
             name="Pipeline: {0} | Step #{1}".format(job.pipeline.name, step.script.name),
             job=job,
@@ -628,7 +616,7 @@ def applyPythonScriptToJob(*args, jobId=-1, stepId=-1, scriptId=-1, **kwargs):
             # take file object and save to filesystem provided it is not none and plausibly could be an extension
             if file_ext and len(file_ext) > 1:
                 file_data = ContentFile(fileBytes)
-                result.file.save("./results/{0}/{1}/Step {2}.{3}".format(jobId, stepId, step.step_number, file_ext),
+                result.file.save("./results/{0}/{1}/Step{2}.{3}".format(jobId, stepId, step.step_number, file_ext),
                                  file_data)
 
             # Create object to hold our outputs (this helps with performance). They can get HUGE.
@@ -715,7 +703,7 @@ def resultsMerge(*args, jobId=-1, stepId=-1, **kwargs):
     outputs = {}
 
     for result in results:
-
+        log+=f"\nTry to package result for {result.name}"
         try:
             input_settings[f"{result.doc.id}"] = json.loads(result.input_settings)
         except Exception as e:
@@ -753,6 +741,7 @@ def resultsMerge(*args, jobId=-1, stepId=-1, **kwargs):
         transformed_input_data=json.dumps(transformed_inputs),
     )
     inputObj.save()
+    log+="\ninputObj saved."
 
     # Create object to hold our outputs (this helps with performance). They can get HUGE.
     # Storing them in the main result object really screws with performance.
@@ -760,6 +749,7 @@ def resultsMerge(*args, jobId=-1, stepId=-1, **kwargs):
         output_data=json.dumps(outputs)
     )
     outputObj.save()
+    log+="\noutputObj saved."
 
     step_result = Result.objects.create(
         name="Pipeline: {0} | Step #{1}".format(job.pipeline.name, step.script.name),
@@ -773,9 +763,13 @@ def resultsMerge(*args, jobId=-1, stepId=-1, **kwargs):
     )
     step_result.save()
 
+    log+="\Step result created and saved."
+
     # iterate job step completion count
     job.completed_tasks = job.completed_tasks + 1
     job.save()
+
+    log+="\nResults merger complete."
 
     jobLogger.info(msg=log)
 
@@ -994,7 +988,7 @@ def extractTextForDoc(docId=-1):
 
             # if the rawText field is still empty... assume that extraction hasn't happened.
             # for some file types (like image-only pdfs), this will not always be right.
-            if not d.textObj:
+            if not d.rawText:
 
                 logger.info("No rawText detected... attempt to extract")
 
@@ -1021,15 +1015,10 @@ def extractTextForDoc(docId=-1):
 
                     logger.info("Appending: " + filename)
                     rawText = docx2txt.process(file_object)
-
-                    textObj = DocumentText.objects.create(
-                        ratText=rawText
-                    )
-                    textObj.save()
-
-                    d.textObj = textObj
+                    d.rawText = rawText
                     d.extracted = True
                     d.save()
+
                     file_object.close()
                     logger.info("Successfully extracted txt from .docX: " + filename)
 
@@ -1051,10 +1040,11 @@ def extractTextForDoc(docId=-1):
                         tempFile.close()
 
                     parsed = parser.from_file(tempName)
-                    rawtext = parsed["content"]
-                    d.rawText = rawtext
+                    rawText = parsed["content"]
+                    d.rawText = rawText
                     d.extracted = True
                     d.save()
+
                     file_object.close()
                     logger.info("Successfully extracted txt from .doc: " + filename)
 
@@ -1262,11 +1252,15 @@ def packageJobResults(*args, jobId=-1, **kwargs):
                 jobLogger.info("Result {0} has file ({1})".format(r.id, filename))
 
                 zip_filename = os.path.basename(filename)
+                jobLogger.info("zip_filename")
                 jobLogger.info(zip_filename)
 
                 with default_storage.open(filename, mode='rb') as file:
-                    newChildPath = "./Step {0}/{1}".format(r.job_step.step_number, zip_filename)
-                    jobResultsZipData.write(file.read(), newChildPath)
+                    jobLogger.info(f"Info opened: {file}")
+                    jobLogger.info(f"File type is {type(file.read())}")
+                    newChildPath = "./Step{0}/{1}".format(r.job_step.step_number+1, zip_filename)
+                    jobLogger.info(f"Zip file will be: {newChildPath}")
+                    jobResultsZipData.writestr(newChildPath, file.read(), zipfile.ZIP_DEFLATED)
                     jobLogger.info("	--> DONE")
 
             else:

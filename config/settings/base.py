@@ -161,6 +161,16 @@ MEDIA_ROOT = str(APPS_DIR / "media")
 # https://docs.djangoproject.com/en/dev/ref/settings/#media-url
 MEDIA_URL = "/media/"
 
+# SFTP
+# ------------------------------------------------------------------------------
+SFTP_STORAGE_HOST="sftp"
+SFTP_STORAGE_ROOT= str(APPS_DIR / "media")
+SFTP_STORAGE_PARAMS = {
+    "port":2222,
+    "username":"foo",
+    "password":"pass"
+}
+
 # TEMPLATES
 # ------------------------------------------------------------------------------
 # https://docs.djangoproject.com/en/dev/ref/settings/#templates

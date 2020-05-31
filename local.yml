@@ -3,6 +3,8 @@ version: '3'
 volumes:
   local_postgres_data: {}
   local_postgres_data_backups: {}
+  worker_usr_data: {}
+  worker_tmp: {}
 
 services:
   django: &django
@@ -47,6 +49,10 @@ services:
     depends_on:
       - redis
       - postgres
+    volumes:
+      - worker_usr_data:/usr/local
+      - worker_tmp:/tmp
+      - .:/app
 
     ports: []
     command: /start-celeryworker
@@ -76,3 +82,10 @@ services:
     ports:
       - 9998:9998
 
+  sftp:
+    image: atmoz/sftp
+    volumes:
+        - /host/files:/home/foo/files
+    ports:
+        - "2222:22"
+    command: foo:pass:1001

@@ -58,8 +58,8 @@ class DocumentViewSet(viewsets.ModelViewSet):
     """
     API endpoint that allows documents to be viewed or created.
     """
-    queryset = Document.objects.all().order_by('-name')
-    filter_fields = ['id', 'name', 'extracted', 'results', 'jobs']
+    queryset = Document.objects.all().prefetch_related('job').order_by('-name')
+    filter_fields = ['id', 'name', 'extracted', 'job']
 
     pagination_class = MediumResultsSetPagination
     serializer_class = DocumentSerializer
@@ -94,9 +94,21 @@ class DocumentViewSet(viewsets.ModelViewSet):
 
         return response
 
+    ##
+    @action(methods=['get'], detail=True)
+    def fullText(self, request, pk=None):
+        try:
+            rawText = Document.objects.filter(id=pk)[0].values('rawText')
+            return JsonResponse({"rawText": rawText})
+
+        except Exception as e:
+            return Response(e,
+                        status=status.HTTP_400_BAD_REQUEST)
+
+
 class LogViewSet(viewsets.ModelViewSet):
 
-    queryset = TaskLogEntry.objects.all().order_by('create_datetime')
+    queryset = TaskLogEntry.objects.select_related('owner','result').all().order_by('create_datetime')
     filter_fields = ['result']
 
     pagination_class = MediumResultsSetPagination
@@ -114,7 +126,7 @@ class JobLogViewSet(viewsets.ModelViewSet):
 
 class JobViewSet(viewsets.ModelViewSet):
 
-    queryset = Job.objects.all().order_by('-name')
+    queryset = Job.objects.select_related('owner', 'pipeline').all().order_by('-name')
     filter_fields = ['name','id', 'status', 'started', 'queued', 'finished', 'type']
 
     pagination_class = None
@@ -214,7 +226,7 @@ class JobViewSet(viewsets.ModelViewSet):
                             status=status.HTTP_400_BAD_REQUEST)
 
 class FileResultsViewSet(viewsets.ModelViewSet):
-    queryset = Result.objects.exclude(file='')
+    queryset = Result.objects.select_related('owner','job','job_step','doc','input_data','output_data').exclude(file='')
     filter_fields = ['id', 'job__id', 'start_time', 'stop_time']
     pagination_class = SmallResultsSetPagination
     serializer_class = ResultSummarySerializer
@@ -222,7 +234,7 @@ class FileResultsViewSet(viewsets.ModelViewSet):
 
 class ResultsViewSet(viewsets.ModelViewSet):
 
-    queryset = Result.objects.all().order_by('-job__id')
+    queryset = Result.objects.select_related('owner','job','job_step','doc','input_data','output_data').all().order_by('-job__id')
     filter_fields = ['id', 'job__id', 'start_time', 'stop_time']
 
     pagination_class = LargeResultsSetPagination
@@ -318,7 +330,7 @@ class ResultsViewSet(viewsets.ModelViewSet):
 
 class PythonScriptViewSet(viewsets.ModelViewSet):
 
-    queryset = PythonScript.objects.all().order_by('-name')
+    queryset = PythonScript.objects.select_related('owner').all().order_by('-name')
     filter_fields = ['id', 'mode', 'type', 'human_name']
 
     pagination_class = None

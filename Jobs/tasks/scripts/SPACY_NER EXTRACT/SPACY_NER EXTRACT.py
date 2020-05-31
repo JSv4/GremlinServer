@@ -24,6 +24,7 @@ def pythonFunction(*args, docText=None, docType=None, docName=None, docByteObj=N
 				   previousData=None, **kwargs):
 	
 	import sys
+	import inspect
 	logger.info("Available packages in Spacy env\n")
 	logger.info(sys.modules.keys())
 	
@@ -37,7 +38,6 @@ def pythonFunction(*args, docText=None, docType=None, docName=None, docByteObj=N
 	from os.path import isfile, join
 	onlyfiles = [f for f in listdir("/tmp") if isfile(join("/tmp", f))]
 	logger.info(f"Here's the contents of /tmp: \n{onlyfiles}")
-		
 	logger.info("Mark One")
 
 	try:
@@ -56,10 +56,14 @@ def pythonFunction(*args, docText=None, docType=None, docName=None, docByteObj=N
 		
 		print("Load Stuff")
 		# initialize Spacy and perform analysis:
-		from spacy.lang.en import English
-		nlp = English()
-		#nlp = spacy.load('en_core_web_lg')
+		#from spacy.lang.en import English
+		# nlp = English()
+		nlp = spacy.load('en_core_web_lg')
 		logger.info("Spacy loaded. Woooo booooy")
+		
+		logger.info("Try to figure out where python stuff is being stored")
+		logger.info(inspect.getfile(spacy))
+		
 		logger.info(type(docText))
 		logger.info("docText")
 		logger.info(docText)
@@ -73,8 +77,11 @@ def pythonFunction(*args, docText=None, docType=None, docName=None, docByteObj=N
 	
 		# Create zipfile contents:
 		baseFilename = os.path.basename(docName)
+		logger.info(f"baseFilename: {baseFilename}")
 		htmlFilename = str.split(baseFilename, "-ANALYSIS.")[0] + ".html"
+		logger.info(f"htmlFilename {htmlFilename}")
 		txtFilename = str.split(baseFilename, "-TEXT.")[0] + ".txt"
+		logger.info(f"txtFilename {txtFilename}")
 	
 		# write out to results file obj
 		docResults = ZipFile(resultObj, 'w')
@@ -82,8 +89,8 @@ def pythonFunction(*args, docText=None, docType=None, docName=None, docByteObj=N
 		docResults.writestr(htmlFilename, html)  # write original file to batch results zip
 		docResults.close()
 	
-		print("Doc ID Processed Successfully!"
-		return (True, "Successfully extracted named entities!", orgMatches, resultObj.getvalue(), ".zip")
+		logger.info("Doc ID Processed Successfully!")
+		return (True, "Successfully extracted named entities!", orgMatches, resultObj.getvalue(), "zip")
 	
 	except Exception as e:
 		logger.info("Error encountered: ")

@@ -25,12 +25,13 @@ class TaskLogEntry(models.Model):
         default=1
     )
 
+    result = models.ForeignKey("Result", blank=False, null=False, on_delete=models.CASCADE)
+
     logger_name = models.CharField(max_length=100)
     level = models.PositiveSmallIntegerField(choices=LOG_LEVELS, default=logging.ERROR, db_index=True)
     msg = models.TextField()
     trace = models.TextField(blank=True, null=True)
     create_datetime = models.DateTimeField(auto_now_add=True, verbose_name='Created at')
-    result = models.ForeignKey("Result", blank=False, null=False, on_delete=models.CASCADE)
 
     def __str__(self):
         return self.msg
@@ -193,7 +194,6 @@ class Job(models.Model):
     finished = models.BooleanField("Job Finished", default=False, blank=False)
     status = models.TextField("Job Status", default="Not Started", blank=False)
     completed_tasks = models.IntegerField("Completed Step Tasks", default=0, blank=False)
-    started_steps = models.ManyToManyField("PipelineStep", blank=True)
 
     # Data variables
     job_inputs = models.TextField("Input Json", blank=True, default="")
@@ -275,16 +275,6 @@ class PipelineStep(models.Model):
     def __str__(self):
         return self.name
 
-class DocumentText(models.Model):
-
-    owner = models.ForeignKey(
-        get_user_model(),
-        on_delete=models.CASCADE,
-        default=1
-    )
-
-    rawText = models.TextField("Extracted Text", blank=False, null=True, default="")
-
 class Document(models.Model):
 
     owner = models.ForeignKey(
@@ -295,21 +285,15 @@ class Document(models.Model):
 
     name = models.CharField("Document Name", max_length=512, default="Contract", blank=False)
     pageCount = models.IntegerField("Number of Pages", blank=False, default=1)
-    textObj = models.ForeignKey(DocumentText, null=True, on_delete=models.CASCADE)
+    rawText = models.TextField("Raw Text", blank=False, default="")
     type = models.CharField("File Extension", max_length=5, default="", blank=False)
     file = models.FileField("Original File", upload_to='data/uploads/docs/')
     extracted = models.BooleanField("Extracted Successfully", default=False)
-    results = models.ManyToManyField("Result", blank=True)
-    jobs = models.ManyToManyField(Job, blank=True)
-
-    def rawText(self):
-        if self.textObj:
-            return self.text_obj.rawText
-        return ""
+    job = models.ForeignKey(Job, null=True, on_delete=models.CASCADE)
 
     #don't want to return shortText by default as it can go on for a looooong, loooong time.
     def shortText(self):
-        return self.rawText()[0:199] if (self.rawText() and len(self.rawText())>200) else self.rawText()
+        return self.rawText[0:199] if (self.rawText and len(self.rawText)>200) else self.rawText
 
     def __str__(self):
         return self.name
