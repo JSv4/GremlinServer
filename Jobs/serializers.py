@@ -93,8 +93,6 @@ class ResultSerializer(serializers.ModelSerializer):
     job = serializers.PrimaryKeyRelatedField(many=False, queryset=Job.objects.all())
     doc = serializers.PrimaryKeyRelatedField(many=False, queryset=Document.objects.all())
     job_step = serializers.PrimaryKeyRelatedField(many=False, queryset=PipelineStep.objects.all())
-    input_data = serializers.PrimaryKeyRelatedField(many=False, queryset=ResultInputData.objects.all())
-    output_data = serializers.PrimaryKeyRelatedField(many=False, queryset=ResultData.objects.all())
 
     class Meta:
         model = Result

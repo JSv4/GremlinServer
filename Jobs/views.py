@@ -46,6 +46,7 @@ class PassthroughRenderer(renderers.BaseRenderer):
     def render(self, data, accepted_media_type=None, renderer_context=None):
         return data
 
+
 class ListInputModelMixin(object):
 
     def get_serializer(self, *args, **kwargs):
@@ -53,6 +54,7 @@ class ListInputModelMixin(object):
         if isinstance(kwargs.get('data', {}), list):
             kwargs['many'] = True
         return super(ListInputModelMixin, self).get_serializer(*args, **kwargs)
+
 
 class DocumentViewSet(viewsets.ModelViewSet):
     """
@@ -115,6 +117,7 @@ class LogViewSet(viewsets.ModelViewSet):
     serializer_class = LogSerializer
     permission_classes = [HasAPIKey | IsAuthenticated]
 
+
 class JobLogViewSet(viewsets.ModelViewSet):
 
     queryset = JobLogEntry.objects.all().order_by('create_datetime')
@@ -123,6 +126,7 @@ class JobLogViewSet(viewsets.ModelViewSet):
     pagination_class = MediumResultsSetPagination
     serializer_class = LogSerializer
     permission_classes = [HasAPIKey | IsAuthenticated]
+
 
 class JobViewSet(viewsets.ModelViewSet):
 
@@ -225,12 +229,14 @@ class JobViewSet(viewsets.ModelViewSet):
             return Response(e,
                             status=status.HTTP_400_BAD_REQUEST)
 
+
 class FileResultsViewSet(viewsets.ModelViewSet):
     queryset = Result.objects.select_related('owner','job','job_step','doc','input_data','output_data').exclude(file='')
     filter_fields = ['id', 'job__id', 'start_time', 'stop_time']
     pagination_class = SmallResultsSetPagination
     serializer_class = ResultSummarySerializer
     permission_classes = [HasAPIKey | IsAuthenticated]
+
 
 class ResultsViewSet(viewsets.ModelViewSet):
 
