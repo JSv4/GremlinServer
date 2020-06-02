@@ -21,24 +21,26 @@ class PipelineSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Pipeline
-        fields = ['id', 'name', 'schema', 'description', 'total_steps', 'owner']
-        read_only_fields = ['id', 'total_steps', 'schema', 'owner']
+        fields = ['id', 'name', 'schema', 'description', 'total_steps', 'owner', 'production', 'supported_files']
+        read_only_fields = ['id', 'total_steps', 'schema', 'owner', 'supported_files']
 
 
 class JobSerializer(serializers.ModelSerializer):
 
     owner = serializers.ReadOnlyField(source='owner.username')
     pipeline = serializers.PrimaryKeyRelatedField(many=False, queryset=Pipeline.objects.all())
+    num_docs = serializers.IntegerField()
 
     class Meta:
         model = Job
 
         fields = ['id', 'name', 'creation_time', 'pipeline', 'queued', 'started',
                   'error', 'finished', 'status', 'job_inputs', 'file',
-                  'completed_tasks','task_count', 'type', 'owner']
+                  'completed_tasks','task_count', 'type', 'owner', 'num_docs']
 
         read_only_fields = ['id', 'creation_time', 'started', 'error', 'finished',
-                            'status', 'file','completed_tasks','task_count', 'type', 'owner']
+                            'status', 'file','completed_tasks','task_count', 'type',
+                            'owner', 'num_docs']
 
 class PipelineStepListSerializer(serializers.ListSerializer):
 

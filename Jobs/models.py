@@ -219,9 +219,9 @@ class Job(models.Model):
 
 class Pipeline(models.Model):
 
-    # Line Meta Data
     name = models.CharField(max_length=512, default="Line Name", blank=False)
     description = models.TextField(default="",blank=True)
+    production = models.BooleanField(default=False, blank=True)
 
     owner = models.ForeignKey(
         get_user_model(),
@@ -230,7 +230,8 @@ class Pipeline(models.Model):
     )
 
     total_steps = models.IntegerField("Step Count", blank=False, default=0)
-    schema = models.TextField("Job Settings", blank=True, default="")
+    schema = models.TextField("Job Settings", blank=False, default="")
+    supported_files = models.TextField("Supported File Types", blank=False, default="")
 
     def __str__(self):
         return self.name

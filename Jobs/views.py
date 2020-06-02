@@ -4,6 +4,7 @@ import os
 import json
 from datetime import datetime
 
+from django.db.models import Count
 from django.http import FileResponse, JsonResponse
 from rest_framework import status
 from rest_framework import viewsets, renderers
@@ -130,7 +131,7 @@ class JobLogViewSet(viewsets.ModelViewSet):
 
 class JobViewSet(viewsets.ModelViewSet):
 
-    queryset = Job.objects.select_related('owner', 'pipeline').all().order_by('-name')
+    queryset = Job.objects.annotate(num_docs=Count('document')).select_related('owner', 'pipeline').all().order_by('-name')
     filter_fields = ['name','id', 'status', 'started', 'queued', 'finished', 'type']
 
     pagination_class = None
@@ -384,7 +385,7 @@ class PythonScriptViewSet(viewsets.ModelViewSet):
 class PipelineViewSet(viewsets.ModelViewSet):
 
     queryset = Pipeline.objects.all().order_by('-name')
-    filter_fields = ['id','name']
+    filter_fields = ['id','name','production']
 
     pagination_class = None
     serializer_class = PipelineSerializer
