@@ -467,15 +467,12 @@ class UploadScriptViewSet(APIView):
         if 'file' not in request.data:
             raise ParseError("Empty content")
 
-        print("Get Ready to start")
+        logging.info("Received a new PythonScript upload.")
         try:
             f = request.data['file'].open().read()
-            print(f)
-            print(type(f))
-            print(bytearray(f))
-            print(io.BytesIO(f))
+
             with ZipFile(request.data['file'].open(), mode='r') as importZip:
-                print("Opened")
+                logging.info("File successfully uploaded.")
                 script = ""
                 name = ""
                 description = ""
@@ -485,40 +482,44 @@ class UploadScriptViewSet(APIView):
                 requirements = ""
                 setup_script = ""
 
-                print(f"importZip namelist: {importZip.namelist()}")
+                logging.info(f"Received zip file contents: {importZip.namelist()}")
 
                 if not "./script/script.py" in importZip.namelist():
+                    logging.error("No script @ ./script/script.py")
                     raise ParseError("No /script/script.py")
                 else:
-                    print("Found script...")
+                    logging.info("Found script @ ./script/script.py")
                     with importZip.open("./script/script.py") as myfile:
                         script = myfile.read().decode('UTF-8')
-                print(f"Script: {script}")
+                logging.info(f"Loaded script: {script}")
 
                 if not "./config.json" in importZip.namelist():
+                    logging.error("No config file @ ./config.json")
                     raise ParseError("No ./config.json config file")
                 else:
                     with importZip.open("./config.json") as myfile:
 
                         config_text = myfile.read().decode('UTF-8')
-                        print(f"Loaded file: {config_text}")
+                        logging.info(f"Loaded config file @ ./config.json: {config_text}")
                         config = json.loads(config_text)
                         name = config['name']
                         description = config['description']
                         supported_file_types = config['supported_file_types']
                         env_variables = config['env_variables']
 
-                print(f"Parsed config = {config}")
+                logging.info(f"Parsed config file = {config}")
 
                 if "./setup/requirements.txt" in importZip.namelist():
+                    logging.info("Detected requirements file @ ./setup/requirements.txt")
                     with importZip.open("./config.json") as myfile:
                         requirements = myfile.read().decode('UTF-8')
-                print(f"Requirements: {requirements}")
+                logging.info(f"Requirements file extracted: {requirements}")
 
                 if "./setup/install.sh" in importZip.namelist():
+                    logging.info("Detected install commands @ ./setup/install.sh")
                     with importZip.open("./setup/install.sh") as myfile:
                         setup_script = myfile.read().decode('UTF-8')
-                print(f"setup_script: {setup_script}")
+                logging.info(f"Loaded setup_script: {setup_script}")
 
                 # We do NOT import logs in case you're looking for those imports... log are exported from live scripts
                 # but you'll get a new setup log when you import a new script.
@@ -537,7 +538,7 @@ class UploadScriptViewSet(APIView):
                 )
                 script.save()
 
-                print("Script created")
+                logging.info("Script imported and saved.")
 
                 serializer = PythonScriptSerializer(script)
                 return Response(serializer.data)
@@ -594,12 +595,10 @@ class PipelineStepViewSet(ListInputModelMixin, viewsets.ModelViewSet):
         try:
             results = Result.objects.filter(job_step=pk, job=job_id)
             logText = ""
-            print(len(results))
 
             for count, result in enumerate(results):
                 logText = logText + "\n--- Result {0} of {1}: {2}\n".format(count + 1, len(results), result.name)
                 logs = TaskLogEntry.objects.filter(result=result.pk)
-                print(len(logs))
                 for log in reversed(logs):
                     logText = logText + "\n\t({0}) {1} --- ".format(LOG_LEVELS[log.level],
                                                                     log.create_datetime) + log.msg
