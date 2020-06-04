@@ -29,7 +29,7 @@ class JobSerializer(serializers.ModelSerializer):
 
     owner = serializers.ReadOnlyField(source='owner.username')
     pipeline = serializers.PrimaryKeyRelatedField(many=False, queryset=Pipeline.objects.all())
-    num_docs = serializers.IntegerField()
+    num_docs = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = Job

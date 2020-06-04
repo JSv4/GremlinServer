@@ -184,6 +184,7 @@ def runJob(jobId=-1, endStep=-1, *args, **kwargs):
 
             job.queued = False
             job.started = True
+            job.status = "Running..."
             job.save()
 
             pipeline = job.pipeline
@@ -1260,7 +1261,7 @@ def packageJobResults(*args, jobId=-1, **kwargs):
                     jobLogger.info(f"File type is {type(file.read())}")
                     newChildPath = "./Step{0}/{1}".format(r.job_step.step_number+1, zip_filename)
                     jobLogger.info(f"Zip file will be: {newChildPath}")
-                    jobResultsZipData.writestr(newChildPath, file.read(), zipfile.ZIP_DEFLATED)
+                    jobResultsZipData.writestr(newChildPath, file.read())
                     jobLogger.info("	--> DONE")
 
             else:
@@ -1306,6 +1307,10 @@ def packageJobResults(*args, jobId=-1, **kwargs):
         result.save()
 
         job.file.save(resultFilename, file_data)
+        # iterate job step completion count to include the package step (which can take a while so must
+        # be included lest user feel job is "hanging" as task steps are completed 100% only to wait
+        # for the package job.
+        job.completed_tasks = job.completed_tasks + 1
         job.save()
 
         return JOB_SUCCESS
