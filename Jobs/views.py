@@ -451,7 +451,10 @@ class PythonScriptViewSet(viewsets.ModelViewSet):
             zipFile.close()
             outputBytes.seek(io.SEEK_SET)
 
-            return FileResponse(outputBytes, as_attachment=True, filename=f"{script.name}-gremlin_export.zip")
+            filename = f"{script.name}-gremlin_export.zip"
+            response = FileResponse(outputBytes, as_attachment=True, filename=filename)
+            response['filename']= filename
+            return response
 
         except Exception as e:
             return Response(e,

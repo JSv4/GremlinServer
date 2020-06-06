@@ -14,13 +14,12 @@ from Jobs.views import JobViewSet, DocumentViewSet, ResultsViewSet, \
 
 router=DefaultRouter()
 
-router.register("users", UserViewSet)
+router.register(r'Users', UserViewSet)
 router.register(r'Jobs', JobViewSet)
 router.register(r'Documents', DocumentViewSet)
 router.register(r'Results', ResultsViewSet)
 router.register(r'PipelineSteps', PipelineStepViewSet)
 router.register(r'PythonScripts', PythonScriptViewSet)
-# router.register(r'UploadScript', UploadScriptViewSet.as_view())
 router.register(r'Pipelines', PipelineViewSet)
 router.register(r'Logs', LogViewSet)
 
