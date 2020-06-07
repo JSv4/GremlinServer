@@ -13,16 +13,18 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework_api_key.permissions import HasAPIKey
+from rest_framework.permissions import BasePermission
 from rest_framework.exceptions import ParseError
 from rest_framework.parsers import FileUploadParser
 from rest_framework.views import APIView
 
+from Jobs import serializers
 from Jobs.tasks.task_helpers import transformStepInputs
-from .models import Document, Job, Result, PythonScript, PipelineStep, Pipeline, TaskLogEntry, JobLogEntry, \
-    ResultData, ResultInputData
+from .models import Document, Job, Result, PythonScript, PipelineStep, Pipeline, TaskLogEntry, JobLogEntry
 from .paginations import MediumResultsSetPagination, LargeResultsSetPagination, SmallResultsSetPagination
 from .serializers import DocumentSerializer, JobSerializer, ResultSummarySerializer, PythonScriptSerializer, \
-    PipelineSerializer, PipelineStepSerializer, PythonScriptSummarySerializer, LogSerializer, ResultSerializer
+    PipelineSerializer, PipelineStepSerializer, PythonScriptSummarySerializer, LogSerializer, ResultSerializer, \
+    PythonScriptSummarySerializer_READONLY, PipelineSerializer_READONLY, PipelineStepSerializer_READONLY
 from .tasks.tasks import runJob
 
 mimetypes.init()
@@ -39,6 +41,18 @@ LOG_LEVELS = {
     logging.FATAL: 'Fatal',
 }
 
+# Write-Only Permissions on Script, Pipeline and PipelineStep for users with
+# role = LAWYER
+class WriteOnlyIfIsAdminOrEng(BasePermission):
+
+    """
+    Allows write access only to "ADMIN" or "LEGAL_ENG" users.
+    """
+    def has_permission(self, request, view):
+        if request.user.role == "ADMIN" or request.user.role == "LEGAL_ENG":
+            return True
+        else:
+            return request.method in ["GET", "HEAD", "OPTIONS"]
 
 # From here: https://stackoverflow.com/questions/38697529/how-to-return-generated-file-download-with-django-rest-framework
 class PassthroughRenderer(renderers.BaseRenderer):
@@ -66,12 +80,15 @@ class DocumentViewSet(viewsets.ModelViewSet):
     """
     API endpoint that allows documents to be viewed or created.
     """
-    queryset = Document.objects.all().prefetch_related('job').order_by('-name')
+    queryset = Document.objects.filter().prefetch_related('job').order_by('-name')
     filter_fields = ['id', 'name', 'extracted', 'job']
 
     pagination_class = MediumResultsSetPagination
     serializer_class = DocumentSerializer
     permission_classes = [HasAPIKey | IsAuthenticated]
+
+    def get_queryset(self, *args, **kwargs):
+        return self.queryset.filter(owner=self.request.user.id)
 
     # One way to accept multiple objects via serializer:
     # See https://stackoverflow.com/questions/14666199/how-do-i-create-multiple-model-instances-with-django-rest-framework
@@ -133,6 +150,7 @@ class JobLogViewSet(viewsets.ModelViewSet):
 
 
 class JobViewSet(viewsets.ModelViewSet):
+
     queryset = Job.objects.annotate(num_docs=Count('document')).select_related('owner', 'pipeline').all().order_by(
         '-name')
     filter_fields = ['name', 'id', 'status', 'started', 'queued', 'finished', 'type']
@@ -140,6 +158,9 @@ class JobViewSet(viewsets.ModelViewSet):
     pagination_class = None
     serializer_class = JobSerializer
     permission_classes = [HasAPIKey | IsAuthenticated]
+
+    def get_queryset(self, *args, **kwargs):
+        return self.queryset.filter(owner=self.request.user.id)
 
     # This action will run a job up through a certain step of its pipeline
     # e.g. if we called .../Job/1/RunToStep/2 that would run the job 1 pipeline to step index 2 (#3)
@@ -347,13 +368,15 @@ class PythonScriptViewSet(viewsets.ModelViewSet):
 
     pagination_class = None
     serializer_class = PythonScriptSummarySerializer
-    permission_classes = [HasAPIKey | IsAuthenticated]
+    permission_classes = [HasAPIKey | IsAuthenticated & WriteOnlyIfIsAdminOrEng]
 
     # I want to use different serializer for create vs other actions.
     # Based on the guidance here:https://stackoverflow.com/questions/22616973/django-rest-framework-use-different-serializers-in-the-same-modelviewset
     def get_serializer_class(self):
+
         if self.action == 'create':  # for create only, provided option to pass in script.
             return PythonScriptSerializer
+
         return PythonScriptSummarySerializer  # For list, update, delete, and all other actions
 
     # Rather than have every script list request cost enormous amounts of data, have client request script details on a
@@ -430,6 +453,8 @@ class PythonScriptViewSet(viewsets.ModelViewSet):
             else:
                 config['name'] = "NO NAME"
 
+            config['type'] = script.type
+
             # if the config object is not empty... write to a config.json file
             if config is not {}:
                 zipFile.writestr(f"./config.json", json.dumps(config))
@@ -463,21 +488,25 @@ class PythonScriptViewSet(viewsets.ModelViewSet):
 
 class UploadScriptViewSet(APIView):
 
-    permission_classes = [HasAPIKey | IsAuthenticated]
+    allowed_methods = ['post']
+    permission_classes = [HasAPIKey | IsAuthenticated & WriteOnlyIfIsAdminOrEng]
     parser_classes = [FileUploadParser]
 
-    def put(self, request, format=None):
-        if 'file' not in request.data:
+    def post(self, request, format=None):
+
+        if not request.FILES['file']:
+            print("Empty content!")
             raise ParseError("Empty content")
 
-        logging.info("Received a new PythonScript upload.")
+        print("Received a new PythonScript upload.")
         try:
-            f = request.data['file'].open().read()
+            f = request.FILES['file'].open().read()
 
             with ZipFile(request.data['file'].open(), mode='r') as importZip:
-                logging.info("File successfully uploaded.")
+                print("File successfully uploaded.")
                 script = ""
                 name = ""
+                type = ""
                 description = ""
                 supported_file_types = ""
                 env_variables = ""
@@ -485,44 +514,45 @@ class UploadScriptViewSet(APIView):
                 requirements = ""
                 setup_script = ""
 
-                logging.info(f"Received zip file contents: {importZip.namelist()}")
+                print(f"Received zip file contents: {importZip.namelist()}")
 
                 if not "./script/script.py" in importZip.namelist():
-                    logging.error("No script @ ./script/script.py")
+                    print("No script @ ./script/script.py")
                     raise ParseError("No /script/script.py")
                 else:
-                    logging.info("Found script @ ./script/script.py")
+                    print("Found script @ ./script/script.py")
                     with importZip.open("./script/script.py") as myfile:
                         script = myfile.read().decode('UTF-8')
-                logging.info(f"Loaded script: {script}")
+                print(f"Loaded script: {script}")
 
                 if not "./config.json" in importZip.namelist():
-                    logging.error("No config file @ ./config.json")
+                    print("No config file @ ./config.json")
                     raise ParseError("No ./config.json config file")
                 else:
                     with importZip.open("./config.json") as myfile:
 
                         config_text = myfile.read().decode('UTF-8')
-                        logging.info(f"Loaded config file @ ./config.json: {config_text}")
+                        print(f"Loaded config file @ ./config.json: {config_text}")
                         config = json.loads(config_text)
                         name = config['name']
+                        type = config['type']
                         description = config['description']
                         supported_file_types = config['supported_file_types']
                         env_variables = config['env_variables']
 
-                logging.info(f"Parsed config file = {config}")
+                print(f"Parsed config file = {config}")
 
                 if "./setup/requirements.txt" in importZip.namelist():
-                    logging.info("Detected requirements file @ ./setup/requirements.txt")
+                    print("Detected requirements file @ ./setup/requirements.txt")
                     with importZip.open("./config.json") as myfile:
                         requirements = myfile.read().decode('UTF-8')
-                logging.info(f"Requirements file extracted: {requirements}")
+                print(f"Requirements file extracted: {requirements}")
 
                 if "./setup/install.sh" in importZip.namelist():
-                    logging.info("Detected install commands @ ./setup/install.sh")
+                    print("Detected install commands @ ./setup/install.sh")
                     with importZip.open("./setup/install.sh") as myfile:
                         setup_script = myfile.read().decode('UTF-8')
-                logging.info(f"Loaded setup_script: {setup_script}")
+                print(f"Loaded setup_script: {setup_script}")
 
                 # We do NOT import logs in case you're looking for those imports... log are exported from live scripts
                 # but you'll get a new setup log when you import a new script.
@@ -541,12 +571,17 @@ class UploadScriptViewSet(APIView):
                 )
                 script.save()
 
-                logging.info("Script imported and saved.")
+                print("Script imported and saved.")
 
                 serializer = PythonScriptSerializer(script)
-                return Response(serializer.data)
+                print(f"Should return: {serializer.data}")
+
+                response = JsonResponse(serializer.data)
+                return response
 
         except Exception as e:
+            print("Exception encountered: ")
+            print(e)
             return Response(e,
                             status=status.HTTP_400_BAD_REQUEST)
 
@@ -557,7 +592,7 @@ class PipelineViewSet(viewsets.ModelViewSet):
 
     pagination_class = None
     serializer_class = PipelineSerializer
-    permission_classes = [HasAPIKey | IsAuthenticated]
+    permission_classes = [HasAPIKey | IsAuthenticated & WriteOnlyIfIsAdminOrEng]
 
     # Clears any existing test jobs and creates a new one.
     @action(methods=['get'], detail=True)
@@ -591,7 +626,7 @@ class PipelineStepViewSet(ListInputModelMixin, viewsets.ModelViewSet):
 
     pagination_class = None
     serializer_class = PipelineStepSerializer
-    permission_classes = [HasAPIKey | IsAuthenticated]
+    [HasAPIKey | IsAuthenticated & WriteOnlyIfIsAdminOrEng]
 
     @action(methods=['get'], detail=True, url_name='JobLogs', url_path='JobLogs/(?P<job_id>[0-9]+)')
     def logs(self, request, pk=None, job_id=None):

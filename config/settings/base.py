@@ -2,6 +2,7 @@
 Base settings to build other settings files upon.
 """
 from pathlib import Path
+from corsheaders.defaults import default_headers
 
 import environ
 
@@ -59,7 +60,6 @@ DJANGO_APPS = [
     "django.contrib.sites",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-    # "django.contrib.humanize", # Handy template tags
     "django.contrib.admin",
     "django.forms",
 ]
@@ -380,7 +380,12 @@ DATA_UPLOAD_MAX_MEMORY_SIZE = 5242880
 CORS_EXPOSE_HEADERS = [
     "Filename",
     "Content-Length",
-    "Content-Disposition"
+    "Content-Disposition",
+    "content-disposition"
+]
+
+CORS_ALLOW_HEADERS = list(default_headers) + [
+    'content-disposition',
 ]
 
 CORS_ORIGIN_WHITELIST = [
@@ -391,6 +396,8 @@ CORS_ORIGIN_WHITELIST = [
     'https://clustergremlin.herokuapp.com'
     '*'
 ]
+CORS_ORIGIN_ALLOW_ALL = True
+
 
 # Allow certain CORS requests
 ACCESS_CONTROL_ALLOW_ORIGIN = [

@@ -24,7 +24,4 @@ router.register(r'Pipelines', PipelineViewSet)
 router.register(r'Logs', LogViewSet)
 
 app_name = "api"
-urlpatterns = [
-                *router.urls,
-                url(r'UploadScript', UploadScriptViewSet.as_view())
-               ]
+urlpatterns = [*router.urls, url(r'UploadScript', UploadScriptViewSet.as_view())]

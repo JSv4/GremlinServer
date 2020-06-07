@@ -6,7 +6,9 @@ from rest_framework import serializers
 
 class DocumentSerializer(serializers.ModelSerializer):
 
-    owner = serializers.ReadOnlyField(source='owner.username')
+    owner = serializers.HiddenField(
+        default=serializers.CurrentUserDefault()
+    )
     job = serializers.PrimaryKeyRelatedField(many=False, queryset=Job.objects.all())
 
     class Meta:
@@ -17,17 +19,28 @@ class DocumentSerializer(serializers.ModelSerializer):
 
 class PipelineSerializer(serializers.ModelSerializer):
 
-    owner = serializers.ReadOnlyField(source='owner.username')
-
+    owner = serializers.HiddenField(
+        default=serializers.CurrentUserDefault()
+    )
     class Meta:
         model = Pipeline
         fields = ['id', 'name', 'schema', 'description', 'total_steps', 'owner', 'production', 'supported_files']
         read_only_fields = ['id', 'total_steps', 'schema', 'owner', 'supported_files']
 
+class PipelineSerializer_READONLY(serializers.ModelSerializer):
+
+    owner = serializers.ReadOnlyField(source='owner.username')
+
+    class Meta:
+        model = Pipeline
+        fields = ['id', 'name', 'schema', 'description', 'total_steps', 'owner', 'production', 'supported_files']
+        read_only_fields = ['id', 'name', 'schema', 'description', 'total_steps', 'owner', 'production', 'supported_files']
 
 class JobSerializer(serializers.ModelSerializer):
 
-    owner = serializers.ReadOnlyField(source='owner.username')
+    owner = serializers.HiddenField(
+        default=serializers.CurrentUserDefault()
+    )
     pipeline = serializers.PrimaryKeyRelatedField(many=False, queryset=Pipeline.objects.all())
     num_docs = serializers.IntegerField(read_only=True)
 
@@ -42,27 +55,12 @@ class JobSerializer(serializers.ModelSerializer):
                             'status', 'file','completed_tasks','task_count', 'type',
                             'owner', 'num_docs']
 
-class PipelineStepListSerializer(serializers.ListSerializer):
-
-    def update(self, instance, validated_data):
-        # Maps for id->instance and id->data item.
-        pipelinestep_mapping = {pipelinestep.id: pipelinestep for pipelinestep in instance}
-        data_mapping = {item['id']: item for item in validated_data}
-
-        # Perform creations and updates.
-        ret = []
-        for pipelinestep_id, data in data_mapping.items():
-            pipelinestep = pipelinestep_mapping.get(pipelinestep_id, None)
-            if pipelinestep is None:
-                ret.append(self.child.create(data))
-            else:
-                ret.append(self.child.update(pipelinestep, data))
-
-        return ret
 
 class PipelineStepSerializer(serializers.ModelSerializer):
 
-    owner = serializers.ReadOnlyField(source='owner.username')
+    owner = serializers.HiddenField(
+        default=serializers.CurrentUserDefault()
+    )
     script = serializers.PrimaryKeyRelatedField(many=False, queryset= PythonScript.objects.all())
     parent_pipeline = serializers.PrimaryKeyRelatedField(many=False, queryset= Pipeline.objects.all())
 
@@ -72,9 +70,24 @@ class PipelineStepSerializer(serializers.ModelSerializer):
         fields = ['id','name', 'parent_pipeline', 'script', 'step_settings',
                   'step_number', 'input_transform', 'owner']
 
-class ResultSummarySerializer(serializers.ModelSerializer):
+class PipelineStepSerializer_READONLY(serializers.ModelSerializer):
 
     owner = serializers.ReadOnlyField(source='owner.username')
+    script = serializers.ReadOnlyField(source='script.id')
+    parent_pipeline = serializers.ReadOnlyField(source='parent_pipeline.id')
+
+    class Meta:
+        model = PipelineStep
+        read_only_fields = ['id', 'name', 'parent_pipeline', 'script', 'step_settings',
+                  'step_number', 'input_transform', 'owner']
+        fields = ['id', 'name', 'parent_pipeline', 'script', 'step_settings',
+                  'step_number', 'input_transform', 'owner']
+
+class ResultSummarySerializer(serializers.ModelSerializer):
+
+    owner = serializers.HiddenField(
+        default=serializers.CurrentUserDefault()
+    )
     job = serializers.PrimaryKeyRelatedField(many=False, queryset=Job.objects.all())
     job_step = serializers.PrimaryKeyRelatedField(many=False, queryset= PipelineStep.objects.all())
     doc = serializers.PrimaryKeyRelatedField(many=False, queryset=Document.objects.all())
@@ -91,7 +104,9 @@ class ResultSummarySerializer(serializers.ModelSerializer):
 
 class ResultSerializer(serializers.ModelSerializer):
 
-    owner = serializers.ReadOnlyField(source='owner.username')
+    owner = serializers.HiddenField(
+        default=serializers.CurrentUserDefault()
+    )
     job = serializers.PrimaryKeyRelatedField(many=False, queryset=Job.objects.all())
     doc = serializers.PrimaryKeyRelatedField(many=False, queryset=Document.objects.all())
     job_step = serializers.PrimaryKeyRelatedField(many=False, queryset=PipelineStep.objects.all())
@@ -109,7 +124,9 @@ class ResultSerializer(serializers.ModelSerializer):
 #Actually include the script and setup install files unlike the ShortScriptSerializer
 class PythonScriptSerializer(serializers.ModelSerializer):
 
-    owner = serializers.ReadOnlyField(source='owner.username')
+    owner = serializers.HiddenField(
+        default=serializers.CurrentUserDefault()
+    )
 
     class Meta:
         model = PythonScript
@@ -133,10 +150,40 @@ class PythonScriptSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'owner', 'setup_log']
 
+class PythonScriptSummarySerializer_READONLY(serializers.ModelSerializer):
+
+    owner = serializers.ReadOnlyField(source='owner.username')
+
+    class Meta:
+        model = PythonScript
+
+        fields = [
+            'id',
+            'name',
+            'human_name',
+            'type',
+            'supported_file_types',
+            'description',
+            'mode',
+            'owner'
+        ]
+        fields = [
+            'id',
+            'name',
+            'human_name',
+            'type',
+            'supported_file_types',
+            'description',
+            'mode',
+            'owner'
+        ]
+
 #Actually include the script and setup install files unlike the ShortScriptSerializer
 class PythonScriptSummarySerializer(serializers.ModelSerializer):
 
-    owner = serializers.ReadOnlyField(source='owner.username')
+    owner = serializers.HiddenField(
+        default=serializers.CurrentUserDefault()
+    )
 
     class Meta:
         model = PythonScript
@@ -155,7 +202,9 @@ class PythonScriptSummarySerializer(serializers.ModelSerializer):
 
 class LogSerializer(serializers.ModelSerializer):
 
-    owner = serializers.ReadOnlyField(source='owner.username')
+    owner = serializers.HiddenField(
+        default=serializers.CurrentUserDefault()
+    )
     result = serializers.PrimaryKeyRelatedField(many=False, queryset=Result.objects.all())
 
     class Meta:
@@ -166,7 +215,9 @@ class LogSerializer(serializers.ModelSerializer):
 
 class JobLogSerializer(serializers.ModelSerializer):
 
-    owner = serializers.ReadOnlyField(source='owner.username')
+    owner = serializers.HiddenField(
+        default=serializers.CurrentUserDefault()
+    )
     job = serializers.PrimaryKeyRelatedField(many=False, queryset=Job.objects.all())
 
     class Meta:
