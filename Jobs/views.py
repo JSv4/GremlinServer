@@ -88,7 +88,11 @@ class DocumentViewSet(viewsets.ModelViewSet):
     permission_classes = [HasAPIKey | IsAuthenticated]
 
     def get_queryset(self, *args, **kwargs):
-        return self.queryset.filter(owner=self.request.user.id)
+        #for legal engineers and lawyers, don't show them jobs or docs that don't belong to them.
+        if self.request.user.role == "LEGAL_ENG"  or self.request.user.role == "LAWYER":
+            return self.queryset.filter(owner=self.request.user.id)
+        else:
+            return self.queryset
 
     # One way to accept multiple objects via serializer:
     # See https://stackoverflow.com/questions/14666199/how-do-i-create-multiple-model-instances-with-django-rest-framework
@@ -160,7 +164,11 @@ class JobViewSet(viewsets.ModelViewSet):
     permission_classes = [HasAPIKey | IsAuthenticated]
 
     def get_queryset(self, *args, **kwargs):
-        return self.queryset.filter(owner=self.request.user.id)
+        # for legal engineers and lawyers, don't show them jobs or docs that don't belong to them.
+        if self.request.user.role == "LEGAL_ENG" or self.request.user.role == "LAWYER":
+            return self.queryset.filter(owner=self.request.user.id)
+        else:
+            return self.queryset
 
     # This action will run a job up through a certain step of its pipeline
     # e.g. if we called .../Job/1/RunToStep/2 that would run the job 1 pipeline to step index 2 (#3)

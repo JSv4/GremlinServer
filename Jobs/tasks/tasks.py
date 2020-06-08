@@ -465,7 +465,7 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, stepId=-1, scriptId=-1,
             if file_ext and len(file_ext) > 1:
                 name, file_extension = os.path.splitext(doc.name)
                 file_data = ContentFile(fileBytes)
-                result.file.save("./results/{0}/{1}/{2}-{3}.{4}".format(jobId, stepId, doc.id, name, file_ext),
+                result.file.save("./step_results/{0}/{1}/{2}-{3}.{4}".format(jobId, stepId, doc.id, name, file_ext),
                                  file_data)
 
             # Create object to hold our outputs (this helps with performance). They can get HUGE.
@@ -617,7 +617,7 @@ def applyPythonScriptToJob(*args, jobId=-1, stepId=-1, scriptId=-1, **kwargs):
             # take file object and save to filesystem provided it is not none and plausibly could be an extension
             if file_ext and len(file_ext) > 1:
                 file_data = ContentFile(fileBytes)
-                result.file.save("./results/{0}/{1}/Step{2}.{3}".format(jobId, stepId, step.step_number, file_ext),
+                result.file.save("./step_results/{0}/{1}/Step{2}.{3}".format(jobId, stepId, step.step_number, file_ext),
                                  file_data)
 
             # Create object to hold our outputs (this helps with performance). They can get HUGE.
@@ -1230,42 +1230,43 @@ def packageJobResults(*args, jobId=-1, **kwargs):
         resultFilename = "%sJob %s - Results.zip" % (resultsDir, jobId)
 
         zipBytes = io.BytesIO()
-        jobResultsZipData = ZipFile(zipBytes, mode="w", compression=zipfile.ZIP_DEFLATED)
         jobData = {}
 
-        for num, r in enumerate(allResults):
+        with ZipFile(zipBytes, mode="w", compression=zipfile.ZIP_DEFLATED) as jobResultsZipData:
 
-            jobLogger.info("Try packaging file result ({0}) into job # {1}".format(r.id, jobId))
+            for num, r in enumerate(allResults):
 
-            if r.file:
+                jobLogger.info("Try packaging file result ({0}) into job # {1}".format(r.id, jobId))
 
-                jobLogger.info("There is a file object associated with this result.")
+                if r.file:
 
-                # if we're using Boto S3 adapter to store docs in AWS, we need to interact with the files differently
-                filename = ""
-                if usingS3:
-                    filename = r.file.name
+                    jobLogger.info("There is a file object associated with this result.")
 
-                # If they're in the local file system
+                    # if we're using Boto S3 adapter to store docs in AWS, we need to interact with the files differently
+                    if usingS3:
+                        filename = r.file.name
+
+                    # If they're in the local file system
+                    else:
+                        filename = r.file.path
+
+                    jobLogger.info("Result {0} has file ({1})".format(r.id, filename))
+
+                    zip_filename = os.path.basename(filename)
+                    jobLogger.info("zip_filename")
+                    jobLogger.info(zip_filename)
+
+                    with default_storage.open(filename, mode='rb') as file:
+                        newChildPath = "./Step{0}/{1}".format(r.job_step.step_number+1, zip_filename)
+                        jobLogger.info(f"Zip file will be: {newChildPath}")
+                        jobResultsZipData.writestr(newChildPath, file.read())
+                        jobLogger.info("	--> DONE")
+
                 else:
-                    filename = r.file.path
+                    jobLogger.info("There is not file object associated with this result.")
 
-                jobLogger.info("Result {0} has file ({1})".format(r.id, filename))
+        jobResultsZipData.close()
 
-                zip_filename = os.path.basename(filename)
-                jobLogger.info("zip_filename")
-                jobLogger.info(zip_filename)
-
-                with default_storage.open(filename, mode='rb') as file:
-                    jobLogger.info(f"Info opened: {file}")
-                    jobLogger.info(f"File type is {type(file.read())}")
-                    newChildPath = "./Step{0}/{1}".format(r.job_step.step_number+1, zip_filename)
-                    jobLogger.info(f"Zip file will be: {newChildPath}")
-                    jobResultsZipData.writestr(newChildPath, file.read())
-                    jobLogger.info("	--> DONE")
-
-            else:
-                jobLogger.info("There is not file object associated with this result.")
 
         # Step results already aggregated doc results, so we don't want to include those when assembling data.
         for num, r in enumerate(stepResults):
@@ -1282,9 +1283,8 @@ def packageJobResults(*args, jobId=-1, **kwargs):
                 jobLogger.info("There is no result data")
 
         # Use Django to write Bytes data to result file for job from memory
-        jobResultsZipData.close()
-        file_data = ContentFile(
-            zipBytes.getvalue())  # cannot use .read() as we're at the end of the zipBytes obj stream here after writing (we didn't just load it)
+
+        zipFile = ContentFile(zipBytes.getvalue())
 
         # Save the resulting job data. TODO - THIS SEEMS WRONG HOW THIS IS HANDLED.
         jobLogger.info("Stringify job outputs for saving.")
@@ -1303,10 +1303,10 @@ def packageJobResults(*args, jobId=-1, **kwargs):
             type='JOB',
             output_data=outputObj
         )
-        result.file.save(resultFilename, file_data)
+        result.file.save(resultFilename, zipFile)
         result.save()
 
-        job.file.save(resultFilename, file_data)
+        job.file.save(resultFilename, zipFile)
         # iterate job step completion count to include the package step (which can take a while so must
         # be included lest user feel job is "hanging" as task steps are completed 100% only to wait
         # for the package job.
