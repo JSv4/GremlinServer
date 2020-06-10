@@ -79,38 +79,13 @@ def setup_direct_queue(sender, instance, **kwargs):
     try:
         scripts=PythonScript.objects.all()
 
-        # For each script, run the setup code...
-        for script in scripts:
+        # For each pythonScript, run the setup code...
+        for pythonScript in scripts:
 
-            # #create module on FS
-            # logging.info(f"updatePythonPackage for script: {script}")
-            #
-            # newModuleDirectory = "./Jobs/tasks/scripts/{0}".format(script.name)
-            # logging.info(f"newModuleDirectory is: {newModuleDirectory}")
-            #
-            # # Create directories for cluster results if it doesn't exist (It should)
-            # # TODO - log some kind of error if there is no directory
-            # if not os.path.exists(newModuleDirectory):
-            #     logger.warning(
-            #         "On attempt to update ScriptID {0}, expected directory does not exist: {1}".format(scriptId,
-            #                                                                                            newModuleDirectory))
-            #     os.makedirs(newModuleDirectory)
-            #
-            # initFile = newModuleDirectory + "/__init__.py"
-            # if not os.file.exists(initFile):
-            #
-            #     with open(newModuleDirectory + "/__init__.py", "w+") as file1:
-            #         file1.write("#Created by Gremlin")
-            #
-            # pythonFileName = "{0}/{1}.py".format(newModuleDirectory, script.name)
-            #
-            # with open(pythonFileName, "w+") as file1:
-            #     file1.write(script.script)
-
-            packages = script.required_packages.split("\n")
+            packages = pythonScript.required_packages.split("\n")
             if len(packages) > 0:
                 logging.info(f"Script requires {len(packages)} packages. "
-                             f"Ensure required packages are installed:\n {script.required_packages}")
+                             f"Ensure required packages are installed:\n {pythonScript.required_packages}")
 
                 p = subprocess.Popen([sys.executable, "-m", "pip", "install", *packages], stdout=subprocess.PIPE)
                 out, err = p.communicate()
@@ -119,14 +94,14 @@ def setup_direct_queue(sender, instance, **kwargs):
                 out = codecs.getdecoder("unicode_escape")(out)[0]
                 if err:
                     err = codecs.getdecoder("unicode_escape")(err)[0]
-                    logging.error(f"Errors from script pre check: \n{err}")
+                    logging.error(f"Errors from pythonScript pre check: \n{err}")
 
-                logging.info(f"Results of python installer for {script.name} \n{out}")
+                logging.info(f"Results of python installer for {pythonScript.name} \n{out}")
 
-            setupScript = script.setup_script
+            setupScript = pythonScript.setup_script
             if setupScript != "":
 
-                logging.info(f"Script {script.name} has setupScript: {setupScript}")
+                logging.info(f"Script {pythonScript.name} has setupScript: {setupScript}")
 
                 lines = setupScript.split("\n")
 
@@ -139,11 +114,11 @@ def setup_direct_queue(sender, instance, **kwargs):
                     out = codecs.getdecoder("unicode_escape")(out)[0]
                     if err:
                         err = codecs.getdecoder("unicode_escape")(err)[0]
-                        logging.error(f"Errors from script pre check: \n{err}")
+                        logging.error(f"Errors from pythonScript pre check: \n{err}")
 
-                    logging.info(f"Results of bash install script for {script.name}: \n{out}")
+                    logging.info(f"Results of bash install pythonScript for {pythonScript.name}: \n{out}")
 
-            envVariables = script.env_variables
+            envVariables = pythonScript.env_variables
             if envVariables != "":
                 logging.info(f"It appears there are env variables: {envVariables}")
 
@@ -176,8 +151,72 @@ class FaultTolerantTask(celery.Task):
         connection.close()
 
 
+@celery_app.task(base=FaultTolerantTask, name="Run Script Installs")
+def runScriptInstalls(*args, scriptId=-1, **kwargs):
+
+    try:
+        pythonScript=PythonScript.objects.get(id=scriptId)
+
+        packages = pythonScript.required_packages.split("\n")
+        if len(packages) > 0:
+            logging.info(f"Script requires {len(packages)} packages. "
+                         f"Ensure required packages are installed:\n {pythonScript.required_packages}")
+
+            p = subprocess.Popen([sys.executable, "-m", "pip", "install", *packages], stdout=subprocess.PIPE)
+            out, err = p.communicate()
+
+            # Need to escape out the escape chars in the resulting string: https://stackoverflow.com/questions/6867588/how-to-convert-escaped-characters
+            out = codecs.getdecoder("unicode_escape")(out)[0]
+            if err:
+                err = codecs.getdecoder("unicode_escape")(err)[0]
+                logging.error(f"Errors from pythonScript pre check: \n{err}")
+
+            logging.info(f"Results of python installer for {pythonScript.name} \n{out}")
+
+        setupScript = pythonScript.setup_script
+        if setupScript != "":
+
+            logging.info(f"Script {pythonScript.name} has setupScript: {setupScript}")
+
+            lines = setupScript.split("\n")
+
+            for line in lines:
+
+                p = subprocess.Popen(line.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                out, err = p.communicate()
+
+                # Need to escape out the escape chars in the resulting string: https://stackoverflow.com/questions/6867588/how-to-convert-escaped-characters
+                out = codecs.getdecoder("unicode_escape")(out)[0]
+                if err:
+                    err = codecs.getdecoder("unicode_escape")(err)[0]
+                    logging.error(f"Errors from pythonScript pre check: \n{err}")
+
+                logging.info(f"Results of bash install pythonScript for {pythonScript.name}: \n{out}")
+
+        envVariables = pythonScript.env_variables
+        if envVariables != "":
+            logging.info(f"It appears there are env variables: {envVariables}")
+
+            vars = {}
+            try:
+                vars = json.loads(envVariables)
+                logging.info(f"Parsed following env var structure: {vars}")
+                logging.info(f"Var type is: {type(vars)}")
+            except:
+                logging.warning("Unable to parse env variables.")
+                pass
+
+            for e, v in vars.items():
+                logging.info(f"Adding env_var {e} with value {v}")
+                os.environ[e] = v
+
+    except Exception as e:
+        logging.error(f"Error setting running python script installers.\nScript ID:{scriptId}.\n"
+                      f"Error: \n{e}")
+
+
 @celery_app.task(base=FaultTolerantTask, name="Run Job")
-def runJob(jobId=-1, endStep=-1, *args, **kwargs):
+def runJob(*args, jobId=-1, endStep=-1, **kwargs):
     if jobId == -1:
         logger.error("No job ID was specified for runJobGremlin. You must specify a jobId.")
         return JOB_FAILED_INVALID_JOB_ID
@@ -369,7 +408,8 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, stepId=-1, scriptId=-1,
             return message
 
         # Build json inputs for job, which are built from both step settings in the job settings and
-        # and the step_settings store.
+        # and the step_settings store. Dictonaries are combined. If key exists in both job and step settings
+        # the job key will overwrite the step key's value.
         scriptInputs = buildScriptInput(step.step_number,
                                         job.job_inputs,
                                         step.step_settings,
@@ -937,44 +977,6 @@ def createNewPythonPackage(scriptId, *args, **kwargs):
 
     with open(newModuleDirectory + "/__init__.py", "w+") as file1:
         file1.write("#Created by Gremlin")
-
-
-# update an existing package for a python script...
-@celery_app.task(base=FaultTolerantTask, name="Update Script Package")
-def updatePythonPackage(scriptId, *args, **kwargs):
-    script = PythonScript.objects.get(id=scriptId)
-    logging.info(f"updatePythonPackage for script: {script}")
-
-    newModuleDirectory = "./Jobs/tasks/scripts/{0}".format(script.name)
-    logging.info(f"newModuleDirectory is: {newModuleDirectory}")
-
-    # Create directories for cluster results if it doesn't exist (It should)
-    # TODO - log some kind of error if there is no directory
-    if not os.path.exists(newModuleDirectory):
-        logger.warning("On attempt to update ScriptID {0}, expected directory does not exist: {1}".format(scriptId,
-                                                                                                          newModuleDirectory))
-        os.makedirs(newModuleDirectory)
-
-    pythonFileName = "{0}/{1}.py".format(newModuleDirectory, script.name)
-
-    with open(pythonFileName, "w+") as file1:
-        file1.write(script.script)
-
-
-@celery_app.task(base=FaultTolerantTask, name="Delete Script Package")
-def deletePythonPackage(scriptName, *args, **kwargs):
-    moduleDirectory = "./Jobs/tasks/scripts/{0}".format(scriptName)
-    moduleDirectoryAbs = os.path.abspath(moduleDirectory)
-    logger.info("Delete absolute path: {0}".format(moduleDirectoryAbs))
-    # Create directories for cluster results if it doesn't exist (It should)
-    # TODO - log some kind of error if there is no directory
-    if os.path.exists(moduleDirectoryAbs):
-        rmtree(
-            moduleDirectoryAbs)  # based on: https://stackoverflow.com/questions/13118029/deleting-folders-in-python-recursively
-    else:
-        logger.warning(
-            "On attempt to delete script with name {0}, expected directory does not exist: {1}".format(scriptName,
-                                                                                                       moduleDirectory))
 
 
 @celery_app.task(base=FaultTolerantTask, name="Extract Document Text")

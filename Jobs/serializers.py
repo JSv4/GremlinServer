@@ -124,15 +124,14 @@ class ResultSerializer(serializers.ModelSerializer):
 #Actually include the script and setup install files unlike the ShortScriptSerializer
 class PythonScriptSerializer(serializers.ModelSerializer):
 
-    owner = serializers.HiddenField(
-        default=serializers.CurrentUserDefault()
-    )
+    owner = serializers.ReadOnlyField(source='owner.username')
 
     class Meta:
         model = PythonScript
 
         fields = [
             'id',
+            'owner',
             'name',
             'human_name',
             'type',
@@ -146,9 +145,8 @@ class PythonScriptSerializer(serializers.ModelSerializer):
             'env_variables',
             'installer_log',
             'setup_log',
-            'owner'
         ]
-        read_only_fields = ['id', 'owner', 'setup_log']
+        read_only_fields = ['id', 'setup_log', 'owner']
 
 class PythonScriptSummarySerializer_READONLY(serializers.ModelSerializer):
 

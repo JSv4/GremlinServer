@@ -3,8 +3,7 @@ import json
 import operator
 from django.db import transaction
 
-from .tasks.tasks import runJob, installPackages, runPythonScriptSetup, \
-    createNewPythonPackage, extractTextForDoc, updatePythonPackage, deletePythonPackage
+from .tasks.tasks import runJob, installPackages, runPythonScriptSetup, extractTextForDoc, runScriptInstalls
 from .models import PipelineStep, Pipeline, PythonScript
 
 # Excellent django logging guidance here: https://docs.python.org/3/howto/logging-cookbook.html
@@ -16,7 +15,7 @@ logger.setLevel(logging.DEBUG)
 
 def run_job_on_queued(sender, instance, created, **kwargs):
     if instance.queued and not instance.started and not instance.error and not instance.finished:
-        runJob.delay(instance.id)
+        runJob.delay(jobId=instance.id)
 
 
 # https://stackoverflow.com/questions/53503460/possible-race-condition-between-django-post-save-signal-and-celery-task
@@ -242,28 +241,10 @@ def update_pipeline_schema(sender, instance, **kwargs):
     except Exception as e:
         print(f"Error trying to update pipeline schema: {e}")
 
+
 # When a new script is created... first install the required packages
 def setup_python_script_on_create(sender, instance, created, **kwargs):
-    if created:
-
-        setupSteps = []
-
-        # if there is a list of required packages, add a job to install them
-        if not instance.required_packages == "":
-            packages = instance.required_packages.splitlines()
-            installPackages.delay(instance.id, *packages)
-
-        if not instance.setup_script == "":
-            lines = instance.setup_script.splitlines()
-            runPythonScriptSetup.delay(instance.id, *lines)
-
-        setupSteps.append(updatePythonPackage.si(instance.id))
-
-        steps = len(setupSteps)
-        if steps == 1:
-            setupSteps[0].apply_async()
-        elif steps > 1:
-            chain(*setupSteps)()
+    runScriptInstalls.s(scriptId=instance.id)
 
 
 # When a python script is updated... save the updated code and, if necessary, run the installer.
@@ -273,20 +254,4 @@ def update_python_script_on_save(sender, instance, **kwargs):
     except sender.DoesNotExist:
         pass
     else:
-        # Required package field has changed, try to install new packages.
-        if not obj.required_packages == instance.required_packages:
-            print("Python script updated... running install script.")
-
-            # if there is a list of required packages, add a job to install them
-            if not instance.required_packages == "":
-                packages = instance.required_packages.splitlines()
-                installPackages.delay(instance.id, *packages)
-
-        if not obj.setup_script == instance.setup_script:
-            print("Install script updated... running install script.")
-
-            if not instance.setup_script == "":
-                lines = instance.setup_script.splitlines()
-                runPythonScriptSetup.delay(instance.id, *lines)
-
-        updatePythonPackage.delay(instance.id)
+        runScriptInstalls.s(scriptId=instance.id)

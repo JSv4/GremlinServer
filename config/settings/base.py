@@ -386,6 +386,15 @@ CORS_EXPOSE_HEADERS = [
 
 CORS_ALLOW_HEADERS = list(default_headers) + [
     'content-disposition',
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
 ]
 
 CORS_ORIGIN_WHITELIST = [
