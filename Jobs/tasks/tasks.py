@@ -2,6 +2,10 @@ from __future__ import absolute_import, unicode_literals
 
 import zipfile
 import traceback
+import tempfile
+from glob import iglob
+from os import remove
+from errno import ENOENT
 from zipfile import ZipFile
 from django.core.files.base import ContentFile
 from django.db import connection
@@ -53,6 +57,15 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 step_logger = logging.getLogger('task_db')
 job_logger = logging.getLogger('job_db')
+
+# Cleanup for temporary files
+def cleanup(temp_name):
+    for filename in iglob(temp_name + '*' if temp_name else temp_name):
+        try:
+            remove(filename)
+        except OSError as e:
+            if e.errno != ENOENT:
+                raise e
 
 # One of the challenges of switching to a docker-based deploy is that system env isn't persisted and
 # The whole goal of this system is to dynamically provision and reprovision scripts into a data processing
@@ -1020,7 +1033,6 @@ def extractTextForDoc(docId=-1):
                     d.extracted = True
                     d.save()
 
-                    file_object.close()
                     logger.info("Successfully extracted txt from .docX: " + filename)
 
                 elif file_extension == ".doc":
@@ -1030,29 +1042,24 @@ def extractTextForDoc(docId=-1):
                     # suggests that it cannot. I could be wrong, but it keeps choking on binary file and I'm
                     # tired of screwing with it. Write a temp file with nearly impossible likelihood of collission.
                     # pass filename to tika. Will delete on finish.
-                    tempName = str(uuid.uuid4()) + "_temp.doc"
-                    logger.info("Tempfile name is {0}".format(tempName))
 
                     # save current word doc to temp file
                     # nice overview of file modes: https://stackoverflow.com/questions/16208206/confused-by-python-file-mode-w
                     # file copy code from https://stackoverflow.com/questions/36875258/copying-one-files-contents-to-another-in-python
-                    with open(tempName, "wb+") as tempFile:
-                        copyfileobj(file_object.file, tempFile)
-                        tempFile.close()
+                    try:
+                        with tempfile.NamedTemporaryFile(prefix='gremlin_', suffix=file_extension, delete=True) as tf:
 
-                    parsed = parser.from_file(tempName)
-                    rawText = parsed["content"]
-                    d.rawText = rawText
-                    d.extracted = True
-                    d.save()
+                            copyfileobj(file_object, tf)
+                            parsed = parser.from_file(tf.name)
+                            rawText = parsed["content"]
+                            d.rawText = rawText
+                            d.extracted = True
+                            d.save()
 
-                    file_object.close()
+                    except Exception as e:
+                        logger.warning(f"Error encountered while trying to parse document: {e}")
+
                     logger.info("Successfully extracted txt from .doc: " + filename)
-
-                    if os.path.exists(tempName):
-                        os.remove(tempName)
-                    else:
-                        logger.error("Tempfile - {0} - doesn't existing anymore...".format(tempName))
 
                     return JOB_SUCCESS
 
@@ -1193,6 +1200,9 @@ def extractTextForDoc(docId=-1):
                         JOB_FAILED_DID_NOT_FINISH, filename, file_extension)
                     logger.error(message)
                     return message
+
+                file_object.close()
+
             else:
                 return JOB_SUCCESS
         except Exception as e:
