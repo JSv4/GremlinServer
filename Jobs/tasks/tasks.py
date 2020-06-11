@@ -3,6 +3,7 @@ from __future__ import absolute_import, unicode_literals
 import zipfile
 import traceback
 import tempfile
+from pathlib import Path
 from glob import iglob
 from os import remove
 from errno import ENOENT
@@ -654,7 +655,7 @@ def applyPythonScriptToJob(*args, jobId=-1, stepId=-1, scriptId=-1, **kwargs):
         try:
             # call the script with the appropriate Gremlin / Django objects already loaded (don't want the user
             # interacting with underlying Django infrastructure.
-            finished, message, data, fileBytes, file_ext = createFunctionFromString(script.script)(*args,
+            finished, message, data, fileBytes, file_ext, docPackaging = createFunctionFromString(script.script)(*args,
                                                                                         job=job,
                                                                                         step=step,
                                                                                         logger=scriptLogger,
@@ -666,11 +667,48 @@ def applyPythonScriptToJob(*args, jobId=-1, stepId=-1, scriptId=-1, **kwargs):
             logging.info(f"Message {message}")
             logging.info(f"data {data}")
             logging.info(f"file extension {file_ext} of type {type(file_ext)}")
+            logging.info(f"doc packaging instructions are {docPackaging}")
 
+            # if there is a set of doc packaging instructions, build the doc package
+            if docPackaging and isinstance(docPackaging, dict):
+
+                packageBytes = io.BytesIO()
+                packageZip = ZipFile(packageBytes, mode='w', compression=zipfile.ZIP_DEFLATED)
+
+                # if we're using Boto S3 adapter to store docs in AWS, we need to interact with the files differently
+                usingS3 = (settings.DEFAULT_FILE_STORAGE == "gremlin_gplv3.utils.storages.MediaRootS3Boto3Storage")
+
+                for returnDocId in list(docPackaging.keys()):
+
+                    doc = Document.objects.get(id=returnDocId)
+
+                    if usingS3:
+                        filename = doc.file.name
+
+                    # If they're in the local file system
+                    else:
+                        filename = doc.file.path
+
+                    docPath = Path(filename)
+
+                    with default_storage.open(filename, mode='rb') as file:
+                        print(f"newChildPath root is {Path(docPackaging[returnDocId])}")
+                        newChildPath = f"{docPackaging[returnDocId]}/{docPath.name}"
+                        print(f"newChildPath is {newChildPath}")
+                        packageZip.writestr(newChildPath, file.read())
+
+                packageZip.close()
+
+                result.file.save("./step_results/{0}/{1}/Step {2} ({3}).{4}".format(jobId, stepId, step.name,
+                                                                                    step.step_number+1, "zip"),
+                                 ContentFile(packageBytes.getvalue()))
+
+            #Otherwise, store the file object returned
             # take file object and save to filesystem provided it is not none and plausibly could be an extension
-            if file_ext and len(file_ext) > 1:
+            elif file_ext and len(file_ext) > 1:
                 file_data = ContentFile(fileBytes)
-                result.file.save("./step_results/{0}/{1}/Step{2}.{3}".format(jobId, stepId, step.step_number, file_ext),
+                result.file.save("./step_results/{0}/{1}/Step {2} ({3}).{4}".format(jobId, stepId, step.name,
+                                                                                    step.step_number+1, file_ext),
                                  file_data)
 
             # Create object to hold our outputs (this helps with performance). They can get HUGE.
@@ -800,7 +838,7 @@ def resultsMerge(*args, jobId=-1, stepId=-1, **kwargs):
     # Create object to hold our outputs (this helps with performance). They can get HUGE.
     # Storing them in the main result object really screws with performance.
     outputObj = ResultData.objects.create(
-        output_data=json.dumps(outputs)
+        output_data=json.dumps({"documents": outputs})
     )
     outputObj.save()
     log+="\noutputObj saved."
@@ -1269,7 +1307,7 @@ def packageJobResults(*args, jobId=-1, **kwargs):
                     jobLogger.info(zip_filename)
 
                     with default_storage.open(filename, mode='rb') as file:
-                        newChildPath = "./Step{0}/{1}".format(r.job_step.step_number+1, zip_filename)
+                        newChildPath = "./Step {0} ({1})/{2}".format(r.job_step.step_number+1, r.job_step.name, zip_filename)
                         jobLogger.info(f"Zip file will be: {newChildPath}")
                         jobResultsZipData.writestr(newChildPath, file.read())
                         jobLogger.info("	--> DONE")

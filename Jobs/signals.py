@@ -249,9 +249,4 @@ def setup_python_script_on_create(sender, instance, created, **kwargs):
 
 # When a python script is updated... save the updated code and, if necessary, run the installer.
 def update_python_script_on_save(sender, instance, **kwargs):
-    try:
-        obj = sender.objects.get(pk=instance.pk)
-    except sender.DoesNotExist:
-        pass
-    else:
-        runScriptInstalls.s(scriptId=instance.id)
+    runScriptInstalls.s(scriptId=instance.id)
