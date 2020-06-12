@@ -4,6 +4,8 @@ volumes:
   production_postgres_data: {}
   production_postgres_data_backups: {}
   production_traefik: {}
+  worker_usr_data: {}
+  worker_tmp: {}
 
 services:
   django: &django
@@ -52,6 +54,9 @@ services:
     <<: *django
     image: gremlin_gplv3_production_celeryworker
     command: /start-celeryworker
+    volumes:
+      - worker_usr_data:/usr/local
+      - worker_tmp:/tmp
 
   celerybeat:
     <<: *django
@@ -64,7 +69,8 @@ services:
     command: /start-flower
 
   tika:
-    image: lexpredict/tika-server:latest
+    image: apache/tika:1.24.1
+    container_name: tika
     ports:
       - 9998:9998
 
