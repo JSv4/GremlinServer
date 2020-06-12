@@ -13,7 +13,7 @@ def update_site_forward(apps, schema_editor):
     Site.objects.update_or_create(
         id=settings.SITE_ID,
         defaults={
-            "domain": "thelegal.engineer",
+            "domain": "gremlin.extract.legal",
             "name": "GREMLIN GPLv3",
         },
     )

@@ -26,8 +26,8 @@ certificatesResolvers:
 http:
   routers:
     web-router:
-      rule: "Host(`thelegal.engineer`) || Host(`www.thelegal.engineer`)"
-      
+      rule: "Host(`gremlin.extract.legal`) || Host(`gremlin.extract.legal`)"
+
       entryPoints:
         - web
       middlewares:
@@ -36,8 +36,8 @@ http:
       service: django
 
     web-secure-router:
-      rule: "Host(`thelegal.engineer`) || Host(`www.thelegal.engineer`)"
-      
+      rule: "Host(`gremlin.extract.legal`) || Host(`gremlin.extract.legal`)"
+
       entryPoints:
         - web-secure
       middlewares:
@@ -48,7 +48,7 @@ http:
         certResolver: letsencrypt
 
     flower-secure-router:
-      rule: "Host(`thelegal.engineer`)"
+      rule: "Host(`gremlin.extract.legal`)"
       entryPoints:
         - flower
       service: flower
