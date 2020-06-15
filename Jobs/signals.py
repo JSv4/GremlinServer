@@ -246,15 +246,17 @@ def update_pipeline_schema(sender, instance, **kwargs):
 # When a new script is created... perform required setup (if there are values that require setup)
 def setup_python_script_on_create(sender, instance, created, **kwargs):
 
-    # if there is a list of required packages, add a job to install them
-    if not instance.required_packages == "":
-        runScriptPackageInstaller.delay(scriptId = instance.id)
+    if created:
 
-    if not instance.setup_script == "":
-        runPythonScriptSetup.delay(scriptId = instance.id)
+        # if there is a list of required packages, add a job to install them
+        if not instance.required_packages == "":
+            runScriptPackageInstaller.delay(scriptId = instance.id)
 
-    if not instance.env_variables == "":
-        runScriptEnvVarIntaller.delay(scriptId = instance.id)
+        if not instance.setup_script == "":
+            runPythonScriptSetup.delay(scriptId = instance.id)
+
+        if not instance.env_variables == "":
+            runScriptEnvVarIntaller.delay(scriptId = instance.id)
 
 
 # When a python script is updated... save the updated code and, if necessary, run the installer.
