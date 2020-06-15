@@ -151,10 +151,8 @@ class FaultTolerantTask(celery.Task):
     def after_return(self, *args, **kwargs):
         connection.close()
 
-
-@celery_app.task(base=FaultTolerantTask, name="Run Script Installs")
-def runScriptInstalls(*args, scriptId=-1, **kwargs):
-
+@celery_app.task(base=FaultTolerantTask, name="Run Script Package Installer")
+def runScriptPackageInstaller(*args, scriptId=-1, **kwargs):
     try:
         pythonScript=PythonScript.objects.get(id=scriptId)
 
@@ -173,6 +171,17 @@ def runScriptInstalls(*args, scriptId=-1, **kwargs):
                 logging.error(f"Errors from pythonScript pre check: \n{err}")
 
             logging.info(f"Results of python installer for {pythonScript.name} \n{out}")
+
+    except Exception as e:
+        logging.error(f"Error setting running python script installers.\nScript ID:{scriptId}.\n"
+                      f"Error: \n{e}")
+
+
+@celery_app.task(base=FaultTolerantTask, name="Run Script Setup Script Installer")
+def runScriptSetupScript(*args, scriptId=-1, **kwargs):
+
+    try:
+        pythonScript=PythonScript.objects.get(id=scriptId)
 
         setupScript = pythonScript.setup_script
         if setupScript != "":
@@ -193,6 +202,17 @@ def runScriptInstalls(*args, scriptId=-1, **kwargs):
                     logging.error(f"Errors from pythonScript pre check: \n{err}")
 
                 logging.info(f"Results of bash install pythonScript for {pythonScript.name}: \n{out}")
+
+    except Exception as e:
+        logging.error(f"Error setting running python script installers.\nScript ID:{scriptId}.\n"
+                      f"Error: \n{e}")
+
+
+@celery_app.task(base=FaultTolerantTask, name="Run Script Env Variable Installer")
+def runScriptEnvVarIntaller(*args, scriptId=-1, **kwargs):
+
+    try:
+        pythonScript=PythonScript.objects.get(id=scriptId)
 
         envVariables = pythonScript.env_variables
         if envVariables != "":

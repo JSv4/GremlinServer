@@ -3,7 +3,8 @@ import json
 import operator
 from django.db import transaction
 
-from .tasks.tasks import runJob, installPackages, runPythonScriptSetup, extractTextForDoc, runScriptInstalls
+from .tasks.tasks import runJob, installPackages, runPythonScriptSetup, extractTextForDoc, \
+    runScriptEnvVarIntaller, runScriptPackageInstaller, runScriptSetupScript
 from .models import PipelineStep, Pipeline, PythonScript
 
 # Excellent django logging guidance here: https://docs.python.org/3/howto/logging-cookbook.html
@@ -242,11 +243,47 @@ def update_pipeline_schema(sender, instance, **kwargs):
         print(f"Error trying to update pipeline schema: {e}")
 
 
-# When a new script is created... first install the required packages
+# When a new script is created... perform required setup (if there are values that require setup)
 def setup_python_script_on_create(sender, instance, created, **kwargs):
-    runScriptInstalls.s(scriptId=instance.id)
+
+    # if there is a list of required packages, add a job to install them
+    if not instance.required_packages == "":
+        runScriptPackageInstaller.delay(instance.id)
+
+    if not instance.setup_script == "":
+        runPythonScriptSetup.delay(instance.id)
+
+    if not instance.env_variables == "":
+        runScriptEnvVarIntaller.delay(instance.id)
 
 
 # When a python script is updated... save the updated code and, if necessary, run the installer.
 def update_python_script_on_save(sender, instance, **kwargs):
-    runScriptInstalls.s(scriptId=instance.id)
+
+    try:
+        obj = sender.objects.get(pk=instance.pk)
+
+    except sender.DoesNotExist:
+        pass
+
+    else:
+        # Required package field has changed, try to install new packages.
+        if not obj.required_packages == instance.required_packages:
+            print("Python script updated... running install script.")
+
+            # if there is a list of required packages, add a job to install them
+            if not instance.required_packages == "":
+                runScriptPackageInstaller.delay(instance.id)
+
+        if not obj.setup_script == instance.setup_script:
+            print("Install script updated... running install script.")
+
+            if not instance.setup_script == "":
+                runPythonScriptSetup.delay(instance.id)
+
+        if not obj.env_variables == instance.env_variables:
+            print("Env variables updated... ")
+
+            if not instance.env_variables == "":
+                runScriptEnvVarIntaller.delay(instance.id)
+
