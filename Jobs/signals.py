@@ -248,13 +248,13 @@ def setup_python_script_on_create(sender, instance, created, **kwargs):
 
     # if there is a list of required packages, add a job to install them
     if not instance.required_packages == "":
-        runScriptPackageInstaller.delay(instance.id)
+        runScriptPackageInstaller.delay(scriptId = instance.id)
 
     if not instance.setup_script == "":
-        runPythonScriptSetup.delay(instance.id)
+        runPythonScriptSetup.delay(scriptId = instance.id)
 
     if not instance.env_variables == "":
-        runScriptEnvVarIntaller.delay(instance.id)
+        runScriptEnvVarIntaller.delay(scriptId = instance.id)
 
 
 # When a python script is updated... save the updated code and, if necessary, run the installer.
@@ -273,17 +273,17 @@ def update_python_script_on_save(sender, instance, **kwargs):
 
             # if there is a list of required packages, add a job to install them
             if not instance.required_packages == "":
-                runScriptPackageInstaller.delay(instance.id)
+                runScriptPackageInstaller.delay(scriptId = instance.id)
 
         if not obj.setup_script == instance.setup_script:
             print("Install script updated... running install script.")
 
             if not instance.setup_script == "":
-                runPythonScriptSetup.delay(instance.id)
+                runPythonScriptSetup.delay(scriptId = instance.id)
 
         if not obj.env_variables == instance.env_variables:
             print("Env variables updated... ")
 
             if not instance.env_variables == "":
-                runScriptEnvVarIntaller.delay(instance.id)
+                runScriptEnvVarIntaller.delay(scriptId = instance.id)
 

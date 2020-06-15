@@ -959,7 +959,7 @@ def prepareScript(*args, jobId=-1, scriptId=-1, **kwargs):
 
 # Task to install a python package list (same as you would a la "pip install package1 package 2 package3 package...")
 @celery_app.task(base=FaultTolerantTask, name="Install Python Package")
-def installPackages(scriptId, *args, **kwargs):
+def installPackages(*args, scriptId=-1, **kwargs):
     log = "#################### Package Install Log ####################\n\n{1}"
 
     # call pip as subprocess in current environment. Capture output using p.communicate()
@@ -983,7 +983,7 @@ def installPackages(scriptId, *args, **kwargs):
 # of admins. Be careful how this is exposed to users. It seems necessary for installing new packages, but, long-term,
 # there needs to be a way to install new scripts, install packages and run any necessary setup steps
 @celery_app.task(base=FaultTolerantTask, name="Run Python Setup Script From Text")
-def runPythonScriptSetup(scriptId, *args, **kwargs):
+def runPythonScriptSetup(*args, scriptId=-1, **kwargs):
     print("run")
     log = "#################### Setup Script Log ####################\n\n{1}"
 
@@ -1020,7 +1020,7 @@ def runPythonScriptSetup(scriptId, *args, **kwargs):
 
 # create a new package for a python script... can be imported dynamically later
 @celery_app.task(base=FaultTolerantTask, name="Create New Package")
-def createNewPythonPackage(scriptId, *args, **kwargs):
+def createNewPythonPackage(*args, scriptId=-1, **kwargs):
     script = PythonScript.objects.get(id=scriptId)
     newModuleDirectory = "./Jobs/tasks/scripts/{0}".format(script.name)
 
