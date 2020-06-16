@@ -17,6 +17,8 @@ services:
       - postgres
       - redis
       - tika
+    volumes:
+      - .:/app
     env_file:
       - ./.envs/.production/.django
       - ./.envs/.production/.postgres
@@ -57,6 +59,7 @@ services:
     volumes:
       - worker_usr_data:/usr/local
       - worker_tmp:/tmp
+      - .:/app
 
   celerybeat:
     <<: *django
