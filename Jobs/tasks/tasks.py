@@ -518,7 +518,8 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, stepId=-1, scriptId=-1,
         # This is only going to capture log entries from within the user's scripts.
         scriptLogger = TaskLogger(resultId=result.id, name="User_Doc_Script")
         log += f"\nStarting script for job ID #{job.id} (step # {step.step_number} on doc ID #{doc.id}) with inputs: {scriptInputs}"
-        print(f"DocText is: {doc.rawText}")
+        logging.info(f"Doc is {doc}")
+        logging.info(f"DocText is: {doc.rawText}")
 
         try:
             finished, message, data, fileBytes, file_ext = createFunctionFromString(script.script)(*args,
