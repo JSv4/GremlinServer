@@ -17,6 +17,8 @@ from rest_framework.permissions import BasePermission
 from rest_framework.exceptions import ParseError
 from rest_framework.parsers import FileUploadParser
 from rest_framework.views import APIView
+from rest_framework.generics import GenericAPIView
+from rest_framework import mixins
 
 from Jobs import serializers
 from Jobs.tasks.task_helpers import transformStepInputs
@@ -24,7 +26,8 @@ from .models import Document, Job, Result, PythonScript, PipelineStep, Pipeline,
 from .paginations import MediumResultsSetPagination, LargeResultsSetPagination, SmallResultsSetPagination
 from .serializers import DocumentSerializer, JobSerializer, ResultSummarySerializer, PythonScriptSerializer, \
     PipelineSerializer, PipelineStepSerializer, PythonScriptSummarySerializer, LogSerializer, ResultSerializer, \
-    PythonScriptSummarySerializer_READONLY, PipelineSerializer_READONLY, PipelineStepSerializer_READONLY
+    PythonScriptSummarySerializer_READONLY, PipelineSerializer_READONLY, PipelineStepSerializer_READONLY, \
+    ProjectSerializer
 from .tasks.tasks import runJob
 
 mimetypes.init()
@@ -134,6 +137,8 @@ class DocumentViewSet(viewsets.ModelViewSet):
             return Response(e,
                             status=status.HTTP_400_BAD_REQUEST)
 
+# This
+
 
 class LogViewSet(viewsets.ModelViewSet):
     queryset = TaskLogEntry.objects.select_related('owner', 'result').all().order_by('create_datetime')
@@ -153,6 +158,24 @@ class JobLogViewSet(viewsets.ModelViewSet):
     permission_classes = [HasAPIKey | IsAuthenticated]
 
 
+# See here: https://stackoverflow.com/questions/41104615/how-can-i-specify-the-parameter-for-post-requests-
+# while-using-apiview-with-djang
+class ProjectViewSet(GenericAPIView):
+
+    allowed_methods = ['post']
+    serializer_class = ProjectSerializer
+    permission_classes = [HasAPIKey | IsAuthenticated]
+
+    def post(self, request, *args, **kwargs):
+        print(self.request.data)
+        print(self.request.user)
+        serializer = ProjectSerializer(data=self.request.data, context={'request': self.request})
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_401_UNAUTHORIZED)
+
+
 class JobViewSet(viewsets.ModelViewSet):
 
     queryset = Job.objects.annotate(num_docs=Count('document')).select_related('owner', 'pipeline').all().order_by(
@@ -169,6 +192,21 @@ class JobViewSet(viewsets.ModelViewSet):
             return self.queryset.filter(owner=self.request.user.id)
         else:
             return self.queryset
+
+    # This action is a shortcut to create a doc and job obj at the same time and immediately run it. For a one-request
+    # backend service workflow - e.g. make one request to gremlin to have a document analyzed.
+    @action(methods=['put'], detail=False)
+    def CreateJobAndProcessDoc(self, request):
+
+        try:
+            serializer = ProjectSerializer(data=request.data)
+            if serializer.is_valid(raise_exception=True):
+                return Response(serializer.data)
+            else:
+                return Response(status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response(e,
+                            status=status.HTTP_400_BAD_REQUEST)
 
     # This action will run a job up through a certain step of its pipeline
     # e.g. if we called .../Job/1/RunToStep/2 that would run the job 1 pipeline to step index 2 (#3)

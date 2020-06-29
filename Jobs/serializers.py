@@ -4,6 +4,35 @@ from .models import Document, Job, Result, PythonScript, PipelineStep, \
     Pipeline, TaskLogEntry, JobLogEntry, ResultInputData, ResultData
 from rest_framework import serializers
 
+class ProjectSerializer(serializers.Serializer):
+
+    name = serializers.CharField(max_length=512)
+    owner = serializers.HiddenField(
+        default=serializers.CurrentUserDefault()
+    )
+    file = serializers.FileField(allow_empty_file=False)
+    pipeline = serializers.PrimaryKeyRelatedField(many=False, queryset=Pipeline.objects.all())
+    job_inputs = serializers.CharField(allow_blank=True)
+    callback = serializers.CharField(allow_blank=True)
+
+    def create(self, validated_data):
+
+        job = Job.objects.create(
+            name=validated_data['name'],
+            owner=validated_data['owner'],
+            pipeline=validated_data['pipeline'],
+            job_inputs=validated_data['job_inputs'],
+            callback=validated_data['callback']
+        )
+        doc = Document.objects.create(
+            file=validated_data['file'],
+            name=f"Project {validated_data['name']} - File 0",
+            job=job,
+            owner=validated_data['owner']
+        )
+
+        return job
+
 class DocumentSerializer(serializers.ModelSerializer):
 
     owner = serializers.HiddenField(

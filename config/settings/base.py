@@ -75,6 +75,7 @@ THIRD_PARTY_APPS = [
     "corsheaders",
     "django_filters",
     "django_cleanup.apps.CleanupConfig",
+    "drf_yasg",
 ]
 LOCAL_APPS = [
     "gremlin_gplv3.users.apps.UsersConfig",

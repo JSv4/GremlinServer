@@ -195,6 +195,9 @@ class Job(models.Model):
     status = models.TextField("Job Status", default="Not Started", blank=False)
     completed_tasks = models.IntegerField("Completed Step Tasks", default=0, blank=False)
 
+    # API Integration values
+    callback = models.TextField("Callback URL", default="", blank=True,)
+
     # Data variables
     job_inputs = models.TextField("Input Json", blank=True, default="")
 
@@ -220,7 +223,7 @@ class Job(models.Model):
 class Pipeline(models.Model):
 
     name = models.CharField(max_length=512, default="Line Name", blank=False)
-    description = models.TextField(default="",blank=True)
+    description = models.TextField(default="", blank=True)
     production = models.BooleanField(default=False, blank=True)
 
     owner = models.ForeignKey(
@@ -230,8 +233,8 @@ class Pipeline(models.Model):
     )
 
     total_steps = models.IntegerField("Step Count", blank=False, default=0)
-    schema = models.TextField("Job Settings", blank=False, default="")
-    supported_files = models.TextField("Supported File Types", blank=False, default="")
+    schema = models.TextField("Job Settings", blank=True, default="")
+    supported_files = models.TextField("Supported File Types", blank=True, default="")
 
     def __str__(self):
         return self.name
