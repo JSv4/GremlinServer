@@ -1,5 +1,6 @@
 from __future__ import absolute_import, unicode_literals
 
+import requests
 import zipfile
 import traceback
 import tempfile
@@ -16,7 +17,7 @@ from ..models import Job, Document, PipelineStep, Result, PythonScript, ResultIn
 from celery import chain, group, chord
 from celery.signals import celeryd_after_setup
 from .task_helpers import exec_with_return, returnScriptMethod, buildScriptInput, \
-    transformStepInputs, createFunctionFromString
+    transformStepInputs, createFunctionFromString, sendCallback
 from .taskLoggers import JobLogger, TaskLogger
 from shutil import copyfileobj, rmtree
 from django.conf import settings
@@ -346,6 +347,7 @@ def runJob(*args, jobId=-1, endStep=-1, **kwargs):
 def stopPipeline(*args, jobId=-1, **kwargs):
     jobLogger = JobLogger(jobId=jobId, name="runJob")
     log = f"Trying to stop pipeline for job {jobId} with args of: {args}"
+    job = Job.objects.get(pk=jobId)
 
     if len(args) > 0 and not jobSucceeded(args[0]):
         message = "{0} - Pipeline failure for job Id {1}. Message: {2}".format(JOB_FAILED_DID_NOT_FINISH, jobId,
@@ -353,12 +355,14 @@ def stopPipeline(*args, jobId=-1, **kwargs):
         log += "\n" + message
         jobLogger.error(msg=log)
         stopJob(jobId=jobId, status=message, error=True)
+
         return message
 
     try:
         stopJob(jobId=jobId, status=JOB_SUCCESS, error=False)
         log += f"\nStopped job Id{jobId}"
         jobLogger.info(msg=log)
+
         return JOB_SUCCESS
 
     except Exception as err:
@@ -367,6 +371,7 @@ def stopPipeline(*args, jobId=-1, **kwargs):
         log += "\n" + message
         jobLogger.error(msg=log)
         stopJob(jobId=jobId, status=message, error=True)
+
         return message
 
 

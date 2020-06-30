@@ -17,6 +17,7 @@ class ProjectSerializer(serializers.Serializer):
 
     def create(self, validated_data):
 
+        #Create the job
         job = Job.objects.create(
             name=validated_data['name'],
             owner=validated_data['owner'],
@@ -24,12 +25,18 @@ class ProjectSerializer(serializers.Serializer):
             job_inputs=validated_data['job_inputs'],
             callback=validated_data['callback']
         )
+
+        #Create the doc
         doc = Document.objects.create(
             file=validated_data['file'],
             name=f"Project {validated_data['name']} - File 0",
             job=job,
             owner=validated_data['owner']
         )
+
+        #Now start the job
+        job.queued = True
+        job.save()
 
         return job
 

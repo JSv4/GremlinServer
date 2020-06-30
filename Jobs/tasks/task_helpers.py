@@ -6,6 +6,7 @@ import copy
 import importlib
 import json
 import jsonschema
+import requests
 import re
 import types
 import textwrap
@@ -59,6 +60,17 @@ def isSuccessMessage(message):
     end = len(JOB_SUCCESS)
     return message[0:end] == JOB_SUCCESS
 
+
+def sendCallback(job):
+    try:
+        logger.info("There is a callback... preparing to make callback")
+        returnObj = {
+            'jobId': job.id,
+            'status': job.status
+        }
+        x = requests.post(job.callback, data=returnObj)
+    except Exception as e:
+        logger.warn(f"Error on trying to send callback on job completion: {e}")
 
 # Given a job and a step id, look up the job inputs, step inputs and assemble combined inputs, always overwriting
 # step-level settings with job-level settings
@@ -144,6 +156,10 @@ def stopJob(jobId=-1, status="N/A", error=False):
         job.finished = True
         job.finish_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
         job.save()
+
+        # If there's a callback... send signal that job is complete.
+        if job.callback != "":
+            sendCallback(job)
 
 
 # given a bytes object, a job, a script, and a step, save file to filesystem and store in result
