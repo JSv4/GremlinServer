@@ -1,3 +1,8 @@
+import io
+
+from django.conf import settings
+from django.core.files.storage import default_storage
+
 from .task_constants import JOB_SUCCESS
 from ..models import *
 from datetime import datetime
@@ -62,13 +67,38 @@ def isSuccessMessage(message):
 
 
 def sendCallback(job):
+
     try:
         logger.info("There is a callback... preparing to make callback")
+
+        result = Result.objects.get(job=job, type='JOB')
+
+        usingS3 = (settings.DEFAULT_FILE_STORAGE == "gremlin_gplv3.utils.storages.MediaRootS3Boto3Storage")
+        if usingS3:
+            filename = result.file.name
+        else:
+            filename = result.file.path
+
+        fileBytes = None
+        data = {}
+
+        if result:
+
+            with default_storage.open(filename, mode='rb') as file:
+                fileBytes = io.BytesIO(file.read()).getvalue()
+
+            data = result.output_data.output_data
+
         returnObj = {
             'jobId': job.id,
-            'status': job.status
+            'status': job.status,
+            'data': data,
         }
-        x = requests.post(job.callback, data=returnObj)
+
+        print(f"returnObj: {returnObj}")
+        files = {'file': ('results.zip', fileBytes, 'application/zip', {'Expires': '0'})}
+
+        x = requests.post(job.callback, data=returnObj, files=files)
     except Exception as e:
         logger.warn(f"Error on trying to send callback on job completion: {e}")
 

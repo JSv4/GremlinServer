@@ -12,7 +12,6 @@ from rest_framework import viewsets, renderers
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from rest_framework_api_key.permissions import HasAPIKey
 from rest_framework.permissions import BasePermission
 from rest_framework.exceptions import ParseError
 from rest_framework.parsers import FileUploadParser
@@ -64,7 +63,7 @@ class PassthroughRenderer(renderers.BaseRenderer):
     """
     media_type = ''
     format = ''
-    permission_classes = [HasAPIKey | IsAuthenticated]
+    permission_classes = [IsAuthenticated]
 
     def render(self, data, accepted_media_type=None, renderer_context=None):
         return data
@@ -88,7 +87,7 @@ class DocumentViewSet(viewsets.ModelViewSet):
 
     pagination_class = MediumResultsSetPagination
     serializer_class = DocumentSerializer
-    permission_classes = [HasAPIKey | IsAuthenticated]
+    permission_classes = [IsAuthenticated]
 
     def get_queryset(self, *args, **kwargs):
         #for legal engineers and lawyers, don't show them jobs or docs that don't belong to them.
@@ -146,7 +145,7 @@ class LogViewSet(viewsets.ModelViewSet):
 
     pagination_class = MediumResultsSetPagination
     serializer_class = LogSerializer
-    permission_classes = [HasAPIKey | IsAuthenticated]
+    permission_classes = [IsAuthenticated]
 
 
 class JobLogViewSet(viewsets.ModelViewSet):
@@ -155,7 +154,7 @@ class JobLogViewSet(viewsets.ModelViewSet):
 
     pagination_class = MediumResultsSetPagination
     serializer_class = LogSerializer
-    permission_classes = [HasAPIKey | IsAuthenticated]
+    permission_classes = [IsAuthenticated]
 
 
 # See here: https://stackoverflow.com/questions/41104615/how-can-i-specify-the-parameter-for-post-requests-
@@ -164,7 +163,7 @@ class ProjectViewSet(GenericAPIView):
 
     allowed_methods = ['post']
     serializer_class = ProjectSerializer
-    permission_classes = [HasAPIKey | IsAuthenticated]
+    permission_classes = [IsAuthenticated]
 
     def post(self, request, *args, **kwargs):
         print(self.request.data)
@@ -184,7 +183,7 @@ class JobViewSet(viewsets.ModelViewSet):
 
     pagination_class = None
     serializer_class = JobSerializer
-    permission_classes = [HasAPIKey | IsAuthenticated]
+    permission_classes = [IsAuthenticated]
 
     def get_queryset(self, *args, **kwargs):
         # for legal engineers and lawyers, don't show them jobs or docs that don't belong to them.
@@ -307,7 +306,7 @@ class FileResultsViewSet(viewsets.ModelViewSet):
     filter_fields = ['id', 'job__id', 'start_time', 'stop_time']
     pagination_class = SmallResultsSetPagination
     serializer_class = ResultSummarySerializer
-    permission_classes = [HasAPIKey | IsAuthenticated]
+    permission_classes = [IsAuthenticated]
 
 
 class ResultsViewSet(viewsets.ModelViewSet):
@@ -317,7 +316,7 @@ class ResultsViewSet(viewsets.ModelViewSet):
 
     pagination_class = LargeResultsSetPagination
     serializer_class = ResultSummarySerializer
-    permission_classes = [HasAPIKey | IsAuthenticated]
+    permission_classes = [IsAuthenticated]
 
     # Super useful docs on routing (unsurprisingly): https://www.django-rest-framework.org/api-guide/routers/
     # Also, seems like there's a cleaner way to do this? Working for now but I don't like it doesn't integrate with Django filters.
@@ -414,7 +413,7 @@ class PythonScriptViewSet(viewsets.ModelViewSet):
 
     pagination_class = None
     serializer_class = PythonScriptSummarySerializer
-    permission_classes = [HasAPIKey | IsAuthenticated & WriteOnlyIfIsAdminOrEng]
+    permission_classes = [IsAuthenticated & WriteOnlyIfIsAdminOrEng]
 
     # I want to use different serializer for create vs other actions.
     # Based on the guidance here:https://stackoverflow.com/questions/22616973/django-rest-framework-use-different-serializers-in-the-same-modelviewset
@@ -535,7 +534,7 @@ class PythonScriptViewSet(viewsets.ModelViewSet):
 class UploadScriptViewSet(APIView):
 
     allowed_methods = ['post']
-    permission_classes = [HasAPIKey | IsAuthenticated & WriteOnlyIfIsAdminOrEng]
+    permission_classes = [IsAuthenticated & WriteOnlyIfIsAdminOrEng]
     parser_classes = [FileUploadParser]
 
     def post(self, request, format=None):
@@ -638,7 +637,7 @@ class PipelineViewSet(viewsets.ModelViewSet):
 
     pagination_class = None
     serializer_class = PipelineSerializer
-    permission_classes = [HasAPIKey | IsAuthenticated & WriteOnlyIfIsAdminOrEng]
+    permission_classes = [IsAuthenticated & WriteOnlyIfIsAdminOrEng]
 
     # Clears any existing test jobs and creates a new one.
     @action(methods=['get'], detail=True)
@@ -672,7 +671,7 @@ class PipelineStepViewSet(ListInputModelMixin, viewsets.ModelViewSet):
 
     pagination_class = None
     serializer_class = PipelineStepSerializer
-    [HasAPIKey | IsAuthenticated & WriteOnlyIfIsAdminOrEng]
+    permission_classes = [IsAuthenticated & WriteOnlyIfIsAdminOrEng]
 
     @action(methods=['get'], detail=True, url_name='JobLogs', url_path='JobLogs/(?P<job_id>[0-9]+)')
     def logs(self, request, pk=None, job_id=None):
