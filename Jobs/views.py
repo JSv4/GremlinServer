@@ -25,8 +25,8 @@ from .models import Document, Job, Result, PythonScript, PipelineStep, Pipeline,
 from .paginations import MediumResultsSetPagination, LargeResultsSetPagination, SmallResultsSetPagination
 from .serializers import DocumentSerializer, JobSerializer, ResultSummarySerializer, PythonScriptSerializer, \
     PipelineSerializer, PipelineStepSerializer, PythonScriptSummarySerializer, LogSerializer, ResultSerializer, \
-    PythonScriptSummarySerializer_READONLY, PipelineSerializer_READONLY, PipelineStepSerializer_READONLY, \
-    ProjectSerializer
+    PythonScriptSummarySerializer_READ_ONLY, PipelineSerializer_READONLY, PipelineStepSerializer_READONLY, \
+    ProjectSerializer, FullPipelineSerializer_READ_ONLY
 from .tasks.tasks import runJob
 
 mimetypes.init()
@@ -658,6 +658,14 @@ class PipelineViewSet(viewsets.ModelViewSet):
         )
 
         serializer = JobSerializer(test_job, many=False)
+        return Response(serializer.data)
+
+    # Clears any existing test jobs and creates a new one.
+    @action(methods=['get'], detail=True)
+    def get_full_pipeline(self, request, pk=None):
+        # try:
+        pipeline = Pipeline.objects.prefetch_related('pipelinesteps','owner').get(id=pk)
+        serializer = FullPipelineSerializer_READ_ONLY(pipeline, many=False)
         return Response(serializer.data)
 
 

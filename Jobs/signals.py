@@ -46,7 +46,7 @@ def renumber_pipeline_steps_on_create_or_update(sender, instance: PipelineStep, 
         # If we try to add at negative step_number of a step_number > stepCount, then add at end.
         elif instance.step_number < 0 or instance.step_number > stepCount:
             print(f"Target step_number is less than 0, add to end of pipeline @ StepCount: {stepCount}")
-            instance.step_number = stepCount  # Think this should be stepCount - 1. Wait actually don't think so because that's the count without new step.
+            instance.step_number = stepCount  # Total count with new step -1 to account for 0 index.
 
         # Otherwise, we're introducing a conflicting step_number and need to renumber the pipeline.
         else:
@@ -118,31 +118,29 @@ def renumber_pipeline_steps_on_create_or_update(sender, instance: PipelineStep, 
 
 
 def renumber_pipeline_steps_on_delete(sender, instance, **kwargs):
-    # IF there is a parent pipeline, check that we don't need to renumber other steps.
+
+    # If there is a parent pipeline, check that we don't need to renumber other steps.
     if instance.parent_pipeline:
+
         pipelineSteps = PipelineStep.objects.filter(parent_pipeline=instance.parent_pipeline.id).all()
 
-        numbered_steps = {}
+        stepList = []
         indexToRemove = -1
 
-        for index, ps in enumerate(pipelineSteps):
-            numbered_steps[ps.step_number] = ps
+        # build a list of the steps held in tuples, with step_number, step pairs
+        print("Current pipelineSteps:")
+        for index, step in enumerate(pipelineSteps):
+            print(f"Step #{step.step_number}: {step}")
+            if step.id is not instance.id:
+                stepList.append((step.step_number, step))
 
-        numbered_steps_items = list(numbered_steps.items())
+        # sort the list
+        stepList.sort(key=operator.itemgetter(0))
+        print(f"sorted stepList: {stepList}")
 
-        for index, (step_number, step) in enumerate(numbered_steps_items):
-            if step_number == instance.step_number:
-                indexToRemove = step_number
-                break
-
-        if indexToRemove != -1:
-            try:
-                affected_steps = numbered_steps_items[indexToRemove + 1:]
-                for step_number, step in affected_steps:
-                    PipelineStep.objects.filter(id=step.id).update(step_number=step_number - 1)
-
-            except:
-                pass
+        for index, (step_number, step) in enumerate(stepList):
+            step.step_number = index
+            step.save()
 
 
 # Updates the pipeline schema and the pipeline supported files when one of the linked scripts changes...

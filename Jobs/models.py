@@ -271,7 +271,7 @@ class PipelineStep(models.Model):
     step_settings = models.TextField("Step Settings", blank=True, default="")
 
     # Process variables
-    parent_pipeline = models.ForeignKey("Pipeline", null=True, on_delete=models.SET_NULL)
+    parent_pipeline = models.ForeignKey("Pipeline", related_name="pipelinesteps", null=True, on_delete=models.SET_NULL)
     step_number = models.IntegerField(blank=False, default=-1)
 
     ### Methods #####################################################################################
