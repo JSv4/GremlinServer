@@ -5,7 +5,7 @@ from zipfile import ZipFile
 import json
 from datetime import datetime
 
-from django.db.models import Count
+from django.db.models import Count, Prefetch
 from django.http import FileResponse, JsonResponse
 from rest_framework import status
 from rest_framework import viewsets, renderers
@@ -632,7 +632,10 @@ class UploadScriptViewSet(APIView):
 
 
 class PipelineViewSet(viewsets.ModelViewSet):
-    queryset = Pipeline.objects.all().order_by('-name')
+    # You can sort the nested objects if you want when you prefetch them. You can also presort them at serialization time
+    # Went with the former approach. See more here: https://stackoverflow.com/questions/48247490/django-rest-framework-nested-serializer-order/48249910
+    queryset = Pipeline.objects.prefetch_related('owner', Prefetch('pipelinesteps',
+        queryset=PipelineStep.objects.order_by('-step_number'))).all().order_by('-name')
     filter_fields = ['id', 'name', 'production']
 
     pagination_class = None
