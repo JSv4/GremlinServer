@@ -7,12 +7,12 @@ volumes:
   worker_tmp: {}
 
 services:
-  gremlin: &gremlin
+  django: &django
     build:
       context: .
       dockerfile: ./compose/local/django/Dockerfile
-    image: gremlin_gplv3_local_django
-    container_name: gremlin
+    image: django
+    container_name: django
     depends_on:
       - postgres
       - tika
@@ -30,7 +30,7 @@ services:
     build:
       context: .
       dockerfile: ./compose/production/postgres/Dockerfile
-    image: gremlin_gplv3_production_postgres
+    image: postgres
     container_name: postgres
     volumes:
       - local_postgres_data:/var/lib/postgresql/data
@@ -43,8 +43,8 @@ services:
     container_name: redis
 
   gremlinworker:
-    <<: *gremlin
-    image: gremlin_gplv3_local_celeryworker
+    <<: *django
+    image: django:latest
     container_name: gremlinworker
     depends_on:
       - redis
@@ -58,8 +58,8 @@ services:
     command: /start-celeryworker
 
   celerybeat:
-    <<: *gremlin
-    image: gremlin_gplv3_local_celerybeat
+    <<: *django
+    image: django:latest
     container_name: celerybeat
     depends_on:
       - redis
@@ -69,8 +69,8 @@ services:
     command: /start-celerybeat
 
   flower:
-    <<: *gremlin
-    image: gremlin_gplv3_local_flower
+    <<: *django
+    image: django:latest
     container_name: flower
     ports:
       - "5555:5555"

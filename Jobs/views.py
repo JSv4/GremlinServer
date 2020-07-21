@@ -5,6 +5,10 @@ from zipfile import ZipFile
 import json
 from datetime import datetime
 
+#simple-jwt views to override
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from rest_framework_simplejwt.views import TokenObtainPairView
+
 from django.db.models import Count, Prefetch
 from django.http import FileResponse, JsonResponse
 from rest_framework import status
@@ -17,6 +21,7 @@ from rest_framework.exceptions import ParseError
 from rest_framework.parsers import FileUploadParser
 from rest_framework.views import APIView
 from rest_framework.generics import GenericAPIView
+from rest_framework.schemas.openapi import AutoSchema
 from rest_framework import mixins
 
 from Jobs import serializers
@@ -25,8 +30,8 @@ from .models import Document, Job, Result, PythonScript, PipelineStep, Pipeline,
 from .paginations import MediumResultsSetPagination, LargeResultsSetPagination, SmallResultsSetPagination
 from .serializers import DocumentSerializer, JobSerializer, ResultSummarySerializer, PythonScriptSerializer, \
     PipelineSerializer, PipelineStepSerializer, PythonScriptSummarySerializer, LogSerializer, ResultSerializer, \
-    PythonScriptSummarySerializer_READ_ONLY, PipelineSerializer_READONLY, PipelineStepSerializer_READONLY, \
-    ProjectSerializer, FullPipelineSerializer_READ_ONLY
+    PythonScriptSummarySerializer, PipelineSerializer, PipelineStepSerializer, \
+    ProjectSerializer, Full_PipelineSerializer, Full_PipelineStepSerializer
 from .tasks.tasks import runJob
 
 mimetypes.init()
@@ -42,6 +47,25 @@ LOG_LEVELS = {
     logging.ERROR: 'Error',
     logging.FATAL: 'Fatal',
 }
+
+
+# Overriding the JWT View to add user information to the tokens returned:
+# https://stackoverflow.com/questions/54544978/customizing-jwt-response-from-django-rest-framework-simplejwt/55859751
+class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
+    def validate(self, attrs):
+        data = super().validate(attrs)
+        refresh = self.get_token(self.user)
+        data['refresh'] = str(refresh)
+        data['access'] = str(refresh.access_token)
+
+        # Add extra responses here
+        data['username'] = self.user.username
+        data['role'] = self.user.role
+        return data
+
+
+class MyTokenObtainPairView(TokenObtainPairView):
+    serializer_class = MyTokenObtainPairSerializer
 
 # Write-Only Permissions on Script, Pipeline and PipelineStep for users with
 # role = LAWYER
@@ -80,7 +104,14 @@ class ListInputModelMixin(object):
 
 class DocumentViewSet(viewsets.ModelViewSet):
     """
-    API endpoint that allows documents to be viewed or created.
+    retrieve:
+    Get a given document object.
+
+    list:
+    List all of the documents.
+
+    create:
+    Create a new document object.
     """
     queryset = Document.objects.filter().prefetch_related('job').order_by('-name')
     filter_fields = ['id', 'name', 'extracted', 'job']
@@ -109,6 +140,10 @@ class DocumentViewSet(viewsets.ModelViewSet):
     # Also, seems like there's a cleaner way to do this? Working for now but I don't like it doesn't integrate with Django filters.
     @action(methods=['get'], detail=True, renderer_classes=(PassthroughRenderer,))
     def download(self, request, pk=None):
+
+        """
+            Download the document file linked to this document model.
+        """
 
         document = Document.objects.filter(pk=pk)[0]
 
@@ -157,17 +192,68 @@ class JobLogViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
 
+class ProjectSchema(AutoSchema):
+    def get_operation(self, path, method):
+        operation = super().get_operation(path, method)
+        print("Operation for schema is:")
+        print(operation)
+        operation['parameters'].append({
+            "name": "name",
+            "in": "query",
+            "required": True,
+            "description": "What is the name of the job we'll create?",
+            'schema': {'type': 'string'}
+        })
+        operation['parameters'].append({
+            "name": "file",
+            "in": "query",
+            "required": True,
+            "description": "Document file to analyze. Will be linked a job that will be linked to new job",
+            'schema': {'type': 'file'}
+        })
+        operation['parameters'].append({
+            "name": "pipeline",
+            "in": "query",
+            "required": True,
+            "description": "Id of the processing pipeline to use.",
+            'schema': {'type': 'integer'}
+        })
+        operation['parameters'].append({
+            "name": "job_inputs",
+            "in": "query",
+            "required": False,
+            "description": "Serialized JSON of the inputs for given job (if applicable).",
+            'schema': {'type': 'string'}
+        })
+        operation['parameters'].append({
+            "name": "callback",
+            "in": "query",
+            "required": False,
+            "description": "The callback url to notify when the job is complete (a POST request will be made with multiparty form data containing resulting zip archive and serialized JSON data).",
+            'schema': {'type': 'string'}
+        })
+        return operation
+
+
 # See here: https://stackoverflow.com/questions/41104615/how-can-i-specify-the-parameter-for-post-requests-
 # while-using-apiview-with-djang
 class ProjectViewSet(GenericAPIView):
+    """
+        This is meant to simplify API usage of gremlin. The fields here are sufficient to a) create a new job and
+        b) create a document and link it to the job. Once that's done, it's automatically started. On completion
+        data is posted to the callback URL.
+
+        post:
+        Return the given user.
+
+    """
 
     allowed_methods = ['post']
     serializer_class = ProjectSerializer
     permission_classes = [IsAuthenticated]
 
     def post(self, request, *args, **kwargs):
-        print(self.request.data)
-        print(self.request.user)
+        schema = ProjectSchema
         serializer = ProjectSerializer(data=self.request.data, context={'request': self.request})
         if serializer.is_valid():
             serializer.save()
@@ -597,7 +683,7 @@ class UploadScriptViewSet(APIView):
                     print("Detected install commands @ ./setup/install.sh")
                     with importZip.open("./setup/install.sh") as myfile:
                         setup_script = myfile.read().decode('UTF-8')
-                print(f"Loaded setup_script: {setup_script}")
+                print(f"Importing setup_script: {setup_script}")
 
                 # We do NOT import logs in case you're looking for those imports... log are exported from live scripts
                 # but you'll get a new setup log when you import a new script.
@@ -612,7 +698,8 @@ class UploadScriptViewSet(APIView):
                     env_variables=env_variables,
                     required_inputs=required_inputs,
                     required_packages=requirements,
-                    setup_script=setup_script
+                    setup_script=setup_script,
+                    type=type,
                 )
                 script.save()
 
@@ -639,36 +726,32 @@ class PipelineViewSet(viewsets.ModelViewSet):
     filter_fields = ['id', 'name', 'production']
 
     pagination_class = None
-    serializer_class = PipelineSerializer
+    serializer_class = Full_PipelineSerializer
     permission_classes = [IsAuthenticated & WriteOnlyIfIsAdminOrEng]
 
     # Clears any existing test jobs and creates a new one.
-    @action(methods=['get'], detail=True)
-    def get_test_job(self, request, pk=None):
+    @action(methods=['post'], detail=False)
+    def delete_multiple(self, request):
 
-        # try:
-        test_jobs = Job.objects.filter(type='TEST')
-        if test_jobs:
-            for job in test_jobs:
-                job.delete()
+        try:
+            status = "ok"
+            pipelines = Pipeline.objects.filter(pk__in=request.data['ids'])
+            if pipelines.count() == 0:
+                status = "No matching objects."
+            deleted = list(map(lambda x: x.id, pipelines))
+            pipelines.delete()
+            return JsonResponse({"status": status, "deleted": deleted})
 
-        pipeline = Pipeline.objects.get(id=pk)
-        test_job = Job.objects.create(
-            name="TEST JOB",
-            type="TEST",
-            creation_time=datetime.now(),
-            pipeline=pipeline
-        )
-
-        serializer = JobSerializer(test_job, many=False)
-        return Response(serializer.data)
+        except Exception as e:
+            return Response(e,
+                        status=status.HTTP_400_BAD_REQUEST)
 
     # Clears any existing test jobs and creates a new one.
     @action(methods=['get'], detail=True)
     def get_full_pipeline(self, request, pk=None):
         # try:
         pipeline = Pipeline.objects.prefetch_related('pipelinesteps','owner').get(id=pk)
-        serializer = FullPipelineSerializer_READ_ONLY(pipeline, many=False)
+        serializer = Full_PipelineSerializer(pipeline, many=False)
         return Response(serializer.data)
 
 
@@ -681,7 +764,7 @@ class PipelineStepViewSet(ListInputModelMixin, viewsets.ModelViewSet):
     filter_fields = ['id', 'name', 'parent_pipeline']
 
     pagination_class = None
-    serializer_class = PipelineStepSerializer
+    serializer_class = Full_PipelineStepSerializer
     permission_classes = [IsAuthenticated & WriteOnlyIfIsAdminOrEng]
 
     @action(methods=['get'], detail=True, url_name='JobLogs', url_path='JobLogs/(?P<job_id>[0-9]+)')

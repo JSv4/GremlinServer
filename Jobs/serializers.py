@@ -207,30 +207,28 @@ class PipelineStepSerializer_READONLY(serializers.ModelSerializer):
                   'step_number', 'input_transform', 'owner']
 
 
-class Full_PipelineStepSerializer_READ_ONLY(serializers.ModelSerializer):
+class Full_PipelineStepSerializer(serializers.ModelSerializer):
 
     owner = serializers.ReadOnlyField(source='owner.username')
-    script = PythonScriptSummarySerializer_READ_ONLY(many=False, read_only=True)
+    script = PythonScriptSummarySerializer(many=False, read_only=True)
     parent_pipeline = serializers.ReadOnlyField(source='parent_pipeline.id')
 
     class Meta:
         model = PipelineStep
-        read_only_fields = ['id', 'name', 'parent_pipeline', 'script', 'step_settings',
-                  'step_number', 'input_transform', 'owner']
+        read_only_fields = ['id', 'owner']
         fields = ['id', 'name', 'parent_pipeline', 'script', 'step_settings',
                   'step_number', 'input_transform', 'owner']
 
 
-class FullPipelineSerializer_READ_ONLY(serializers.ModelSerializer):
+class Full_PipelineSerializer(serializers.ModelSerializer):
     owner = serializers.ReadOnlyField(source='owner.username')
-    pipelinesteps = Full_PipelineStepSerializer_READ_ONLY(many=True, read_only=True)
+    pipelinesteps = Full_PipelineStepSerializer(many=True, read_only=True)
 
     class Meta:
         model = Pipeline
         fields = ['id', 'name', 'schema', 'description', 'total_steps', 'owner', 'production',
                   'supported_files', 'pipelinesteps']
-        read_only_fields = ['id', 'name', 'schema', 'description', 'total_steps', 'owner',
-                            'production', 'supported_files', 'pipelinesteps']
+        read_only_fields = ['id', 'schema', 'total_steps', 'owner']
 
 
 class ResultSummarySerializer(serializers.ModelSerializer):

@@ -1102,8 +1102,8 @@ def extractTextForDoc(docId=-1):
 
                     logger.info("Successfully extracted txt from .docX: " + filename)
 
-                elif file_extension == ".doc":
-                    logger.info("Appending AND CONVERTING DOC: " + filename)
+                elif file_extension == ".doc" or file_extension == ".pdf" or file_extension == ".pdfa":
+                    logger.info(f"Appending AND CONVERTING {file_extension}: " + filename)
 
                     # Tika source code comments suggest it can open a binary file... but actual code trace...
                     # suggests that it cannot. I could be wrong, but it keeps choking on binary file and I'm
@@ -1127,138 +1127,6 @@ def extractTextForDoc(docId=-1):
                         logger.warning(f"Error encountered while trying to parse document: {e}")
 
                     logger.info("Successfully extracted txt from .doc: " + filename)
-
-                    return JOB_SUCCESS
-
-                elif file_extension == ".pdf":
-                    logger.info("Appending AND CONVERTING PDF: " + filename)
-                #
-                # 	def printStyle(style):
-                # 		sans_serif_str = ""
-                # 		if style.IsSerif():
-                # 			sans_serif_str = " sans-serif;"
-                # 		rgb = style.GetColor()
-                # 		rgb_hex = "%02X%02X%02X;" % (rgb[0], rgb[1], rgb[2])
-                # 		font_str = '%g' % style.GetFontSize()
-                # 		sys.stdout.write(" style=\"font-family:" + style.GetFontName() + "; font-size:"
-                # 		                 + font_str + ";" + sans_serif_str + " color:#" + rgb_hex + "\"")
-                #
-                # 	def dumpAllText(reader):
-                # 		element = reader.Next()
-                # 		while element != None:
-                # 			type = element.GetType()
-                # 			if type == Element.e_text_begin:
-                # 				print("Text Block Begin")
-                # 			elif type == Element.e_text_end:
-                # 				print("Text Block End")
-                # 			elif type == Element.e_text:
-                # 				bbox = element.GetBBox()
-                # 				print("BBox: " + str(bbox.GetX1()) + ", " + str(bbox.GetY1()) + ", "
-                # 				      + str(bbox.GetX2()) + ", " + str(bbox.GetY2()))
-                # 				textString = element.GetTextString()
-                # 				if sys.version_info.major >= 3:
-                # 					textString = ascii(textString)
-                # 				print(textString)
-                # 			elif type == Element.e_text_new_line:
-                # 				print("New Line")
-                # 			elif type == Element.e_form:
-                # 				reader.FormBegin()
-                # 				dumpAllText(reader)
-                # 				reader.End()
-                # 			element = reader.Next()
-                #
-                # 	# A utility method used to extract all text content from
-                # 	# a given selection rectangle. The recnagle coordinates are
-                # 	# expressed in PDF user/page coordinate system.
-                # 	def ReadTextFromRect(page, pos, reader):
-                # 		reader.Begin(page)
-                # 		srch_str = RectTextSearch(reader, pos)
-                # 		reader.End()
-                # 		return srch_str
-                #
-                # 	# A helper method for ReadTextFromRect
-                # 	def RectTextSearch(reader, pos):
-                # 		element = reader.Next()
-                # 		srch_str2 = ""
-                # 		while element != None:
-                # 			type = element.GetType()
-                # 			if type == Element.e_text:
-                # 				bbox = element.GetBBox()
-                # 				if (bbox.IntersectRect(bbox, pos)):
-                # 					arr = element.GetTextString()
-                # 					srch_str2 += arr
-                # 					srch_str2 += "\n"
-                # 			elif type == Element.e_text_new_line:
-                # 				None
-                # 			elif type == Element.e_form:
-                # 				reader.FormBegin()
-                # 				srch_str2 += RectTextSearch(reader, pos)
-                # 				print(srch_str2)
-                # 				reader.End()
-                # 			element = reader.Next()
-                # 		return srch_str2
-                #
-                # 	# Note that you don't need to read a whole image at a time. Alternatively
-                # 	# you can read a chuck at a time by repeatedly calling reader.Read(buf, buf_sz)
-                # 	# until the function returns 0.
-                #
-                # 	def ProcessElements(reader):
-                #
-                # 		text = ""
-                #
-                # 		element = reader.Next()  # Read page contents
-                # 		while element != None:
-                # 			type = element.GetType()
-                # 			if type == PDFNetPython.Element.e_path:  # Process path data...
-                # 				ProcessPath(reader, element)
-                # 			elif type == PDFNetPython.Element.e_text_begin:  # Process text block...
-                # 				newStr = ProcessText(reader)
-                # 				if isinstance(newStr, str):
-                # 					text = text + newStr
-                # 			elif type == PDFNetPython.Element.e_form:  # Process form XObjects
-                # 				reader.FormBegin()
-                # 				ProcessElements(reader)
-                # 				reader.End()
-                # 			elif type == PDFNetPython.Element.e_image:  # Process Images
-                # 				ProcessImage(element)
-                # 			element = reader.Next()
-                #
-                # 		return text
-                #
-                # 	doc_text = ""
-                # 	doc = PDFNetPython.PDFDoc(filename)
-                # 	doc.InitSecurityHandler()
-                # 	pgnum = doc.GetPageCount()
-                # 	page_begin = doc.GetPageIterator()
-                #
-                # 	for i in range(1, pgnum):
-                # 		logger.info("Extracting pdf text for page {0} of {1}".format(i, pgnum))
-                # 		page = doc.GetPage(i)
-                #
-                # 		if page == None:
-                # 			logger.warning("Page #{0} not found".format(i))
-                #
-                # 		else:
-                # 			logger.info("EXTRACT - From Pdf page #{0}".format(i))
-                # 			txt = TextExtractor()
-                # 			txt.Begin(page)  # Read the page
-                # 			txtAsText = txt.GetAsText()
-                # 			if sys.version_info.major >= 3:
-                # 				txtAsText = ascii(txtAsText)
-                #
-                # 			# there were lots of escape chars in the pdftron text...
-                # 			# This SO https://stackoverflow.com/questions/4020539/process-escape-sequences-in-a-string-in-python
-                # 			# recommended the following to "decode" the escapes.
-                # 			decoded_string = bytes(txtAsText, "utf-8").decode("unicode_escape")
-                # 			doc_text = doc_text + decoded_string
-                #
-                # 			doc_text = doc_text + txtAsText
-                #
-                # 	doc.Close()
-                #
-                # 	d.rawText = doc_text
-                    d.extracted = True
-                    d.save()
 
                     return JOB_SUCCESS
 

@@ -126,6 +126,7 @@ AUTH_PASSWORD_VALIDATORS = [
 # https://docs.djangoproject.com/en/dev/ref/settings/#middleware
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -136,7 +137,6 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.common.BrokenLinkEmailsMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
-    'corsheaders.middleware.CorsMiddleware',
 ]
 
 # STATIC
@@ -397,22 +397,18 @@ CORS_ALLOW_HEADERS = list(default_headers) + [
     'x-requested-with',
 ]
 
+CORS_ALLOW_CREDENTIALS = True
 CORS_ORIGIN_WHITELIST = [
-    "http://localhost:8080",
+    "http://localhost:8001",
     "http://localhost:3000",
-    "http://localhost:8000",
-    'http://clustergremlin.herokuapp.com',
-    'https://clustergremlin.herokuapp.com'
-    '*'
 ]
-CORS_ORIGIN_ALLOW_ALL = True
-
 
 # Allow certain CORS requests
 ACCESS_CONTROL_ALLOW_ORIGIN = [
     "http://localhost:8080",
     "http://localhost:3000",
     "http://localhost:8000",
+    "http://localhost:8001",
     'http://clustergremlin.herokuapp.com',
     'https://clustergremlin.herokuapp.com'
 ]
