@@ -12,10 +12,10 @@ from django.contrib import admin
 from django.urls import path
 from django.conf.urls import include, url
 from rest_framework_simplejwt.views import (
+    TokenObtainPairView,
     TokenRefreshView,
     TokenVerifyView
 )
-from Jobs.views import TokenObtainPairView
 
 
 urlpatterns = [

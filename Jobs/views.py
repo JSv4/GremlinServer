@@ -48,25 +48,6 @@ LOG_LEVELS = {
     logging.FATAL: 'Fatal',
 }
 
-
-# Overriding the JWT View to add user information to the tokens returned:
-# https://stackoverflow.com/questions/54544978/customizing-jwt-response-from-django-rest-framework-simplejwt/55859751
-class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
-    def validate(self, attrs):
-        data = super().validate(attrs)
-        refresh = self.get_token(self.user)
-        data['refresh'] = str(refresh)
-        data['access'] = str(refresh.access_token)
-
-        # Add extra responses here
-        data['username'] = self.user.username
-        data['role'] = self.user.role
-        return data
-
-
-class MyTokenObtainPairView(TokenObtainPairView):
-    serializer_class = MyTokenObtainPairSerializer
-
 # Write-Only Permissions on Script, Pipeline and PipelineStep for users with
 # role = LAWYER
 class WriteOnlyIfIsAdminOrEng(BasePermission):
