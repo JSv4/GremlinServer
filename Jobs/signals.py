@@ -5,7 +5,7 @@ from django.db import transaction
 
 from .tasks.tasks import runJob, installPackages, runPythonScriptSetup, extractTextForDoc, \
     runScriptEnvVarIntaller, runScriptPackageInstaller, runScriptSetupScript
-from .models import PipelineStep, Pipeline, PythonScript
+from .models import PipelineNode, Pipeline, PythonScript
 
 # Excellent django logging guidance here: https://docs.python.org/3/howto/logging-cookbook.html
 import logging
@@ -26,14 +26,14 @@ def process_doc_on_create_atomic(sender, instance, created, **kwargs):
         transaction.on_commit(lambda: extractTextForDoc.delay(instance.id))
 
 
-def renumber_pipeline_steps_on_create_or_update(sender, instance: PipelineStep, **kwargs):
+def renumber_pipeline_steps_on_create_or_update(sender, instance: PipelineNode, **kwargs):
     print("renumber_pipeline_steps_on_create_or_update")
     print(f"Instance: {instance.step_number}")
     # If the step is part of a pipeline calculate proper pipeline ordering... otherwise set step_number = 0
     if instance.parent_pipeline:
 
         print(f"Has parent_pipeline:{instance.parent_pipeline}")
-        pipelineSteps = PipelineStep.objects.filter(parent_pipeline=instance.parent_pipeline.id).all()
+        pipelineSteps = PipelineNode.objects.filter(parent_pipeline=instance.parent_pipeline.id).all()
         stepCount = len(pipelineSteps)
 
         print(f"Pipeline step count is {stepCount}")
@@ -104,14 +104,14 @@ def renumber_pipeline_steps_on_create_or_update(sender, instance: PipelineStep, 
                               f"from in the pipeline somewhere. Only renumber from where this was moved from.")
                         if index >= old_number:
                             print(f"index {index} >= old_number {old_number}")
-                            PipelineStep.objects.filter(id=step.id).update(step_number=index)
+                            PipelineNode.objects.filter(id=step.id).update(step_number=index)
 
                     # Otherwise, we renumber from after where we've inserted the new step.
                     else:
                         print(
                             f"Not an existing step. Renumber from where new step inserted @index=instance.step_number {step_number}")
                         if index > instance.step_number:
-                            PipelineStep.objects.filter(id=step.id).update(step_number=index)
+                            PipelineNode.objects.filter(id=step.id).update(step_number=index)
 
     else:
         instance.step_number = 0
@@ -122,7 +122,7 @@ def renumber_pipeline_steps_on_delete(sender, instance, **kwargs):
     # If there is a parent pipeline, check that we don't need to renumber other steps.
     if instance.parent_pipeline:
 
-        pipelineSteps = PipelineStep.objects.filter(parent_pipeline=instance.parent_pipeline.id).all()
+        pipelineSteps = PipelineNode.objects.filter(parent_pipeline=instance.parent_pipeline.id).all()
 
         stepList = []
         indexToRemove = -1
@@ -151,7 +151,7 @@ def update_pipeline_schema(sender, instance, **kwargs):
     print(f"Got signal to update pipeline schema for sender type {sender} and instance ID #{instance.id}. "
                 f"kwargs are {kwargs}")
     try:
-        if sender is PipelineStep:
+        if sender is PipelineNode:
             print("Sender is PipelineStep")
             pipeline = Pipeline.objects.filter(id=instance.parent_pipeline.id)
             if pipeline.count() == 1:
@@ -184,7 +184,7 @@ def update_pipeline_schema(sender, instance, **kwargs):
 
             print("Get pipelineSteps and Pipelines")
 
-            pipelineStepIds = PipelineStep.objects.prefetch_related('parent_pipeline').filter(script=script) \
+            pipelineStepIds = PipelineNode.objects.prefetch_related('parent_pipeline').filter(script=script) \
                 .exclude(parent_pipeline__isnull=True).values_list('parent_pipeline__id')
             print("pipelineStepIds:")
             print(pipelineStepIds)
@@ -205,7 +205,7 @@ def update_pipeline_schema(sender, instance, **kwargs):
                 numbered_schemas = {}
                 schema = []
                 supported_files = []
-                pipelineSteps = PipelineStep.objects.filter(
+                pipelineSteps = PipelineNode.objects.filter(
                     parent_pipeline=pipeline).all()
                 print(f"pipelineSteps: {pipelineSteps}")
 

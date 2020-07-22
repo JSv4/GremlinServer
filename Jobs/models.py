@@ -1,5 +1,6 @@
 import logging, os, operator
 from django.db import models
+from django.contrib.postgres.fields import JSONField
 from django import utils
 from django.contrib.auth import get_user_model
 from django.db.models import TextField
@@ -209,7 +210,7 @@ class Job(models.Model):
 
     def pipeline_steps(self):
         try:
-            return PipelineStep.objects.filter(parent_pipeline=self.pipeline.id).all()
+            return PipelineNode.objects.filter(parent_pipeline=self.pipeline.id).all()
         except:
             return []
 
@@ -239,7 +240,7 @@ class Pipeline(models.Model):
     def __str__(self):
         return self.name
 
-class PipelineStep(models.Model):
+class PipelineNode(models.Model):
 
     ### CONSTRAINTS ################################################################################
 
@@ -253,7 +254,29 @@ class PipelineStep(models.Model):
     #What is the control job and what is the python scripy
     script = models.ForeignKey(PythonScript, on_delete=models.SET_NULL, null=True)
 
-    # Job Meta Data
+    # Node Type Choices
+    SCRIPT = "THROUGH_SCRIPT"
+    ROOT_NODE = 'ROOT_NODE'
+    PACKAGING_NODE = 'PACKAGING_NODE'
+    CALLBACK = 'CALLBACK'
+    API_REQUEST = 'API_REQUEST'
+
+    NODE_TYPE = [
+        (SCRIPT, _('Python Script')),
+        (ROOT_NODE, _('Root node - provides data, doc and setting.')),
+        (PACKAGING_NODE, _('Packaging node - instructions to package results.')),
+        (CALLBACK, _('Callback - send data or docs out to external API')),
+        (API_REQUEST, _('API Request - request data or docs from an external API')),
+    ]
+
+    type = models.CharField(
+        max_length=128,
+        blank=False,
+        null=False,
+        choices=NODE_TYPE,
+        default=SCRIPT,
+    )
+
     name = models.CharField(max_length=512, default="Step Name", blank=False)
 
     owner = models.ForeignKey(
@@ -266,18 +289,38 @@ class PipelineStep(models.Model):
     # you probably want to transform input data.
     input_transform = models.TextField("Input Transformation", blank=True, null=False, default="")
 
-    #Persisted settings - these will get overriden by any job_settings for this step that have conflicting
-    #keys. The overwrite happens in the tasks.py module.
+    # Persisted settings - these will get overriden by any job_settings for this step that have conflicting
+    # keys. The overwrite happens in the tasks.py module.
     step_settings = models.TextField("Step Settings", blank=True, default="")
 
-    # Process variables
-    parent_pipeline = models.ForeignKey("Pipeline", related_name="pipelinesteps", null=True, on_delete=models.SET_NULL)
+    # Frontend Render Variables
+    x_coord = models.IntegerField("X Coordinate", default=0, blank=False)
+    y_coord = models.IntegerField("Y Coordinate", default=0, blank=False)
+
+    # Process variables - Will deprecate step_number
+    parent_pipeline = models.ForeignKey("Pipeline", related_name="pipelinenodes", null=True, on_delete=models.SET_NULL)
     step_number = models.IntegerField(blank=False, default=-1)
 
     ### Methods #####################################################################################
 
     def __str__(self):
         return self.name
+
+
+# Models connection between pipelinenodes (nodes)
+class Edge(models.Model):
+
+    owner = models.ForeignKey(
+        get_user_model(),
+        on_delete=models.CASCADE,
+        default=1
+    )
+
+    label = models.TextField("Link Label", blank=True, default="")
+    start_node = models.ForeignKey(PipelineNode, null=True, related_name='out_edges', on_delete=models.SET_NULL)
+    end_node = models.ForeignKey(PipelineNode, null=True, related_name='in_edges', on_delete=models.SET_NULL)
+    transform_script = models.TextField("Data Transform Script", blank=True, null=False, default="")
+    parent_pipeline = models.ForeignKey(Pipeline, null=True, related_name='pipeline_edges', on_delete=models.SET_NULL)
 
 class Document(models.Model):
 
@@ -343,7 +386,7 @@ class Result(models.Model):
 
     #Relationships
     job = models.ForeignKey(Job, on_delete=models.CASCADE, null=False)
-    job_step = models.ForeignKey(PipelineStep, on_delete=models.CASCADE, null=True)
+    job_step = models.ForeignKey(PipelineNode, on_delete=models.CASCADE, null=True)
     doc = models.ForeignKey(Document, on_delete=models.SET_NULL, null=True)
 
     # Timing variables

@@ -26,12 +26,12 @@ from rest_framework import mixins
 
 from Jobs import serializers
 from Jobs.tasks.task_helpers import transformStepInputs
-from .models import Document, Job, Result, PythonScript, PipelineStep, Pipeline, TaskLogEntry, JobLogEntry
+from .models import Document, Job, Result, PythonScript, PipelineNode, Pipeline, TaskLogEntry, JobLogEntry, Edge
 from .paginations import MediumResultsSetPagination, LargeResultsSetPagination, SmallResultsSetPagination
 from .serializers import DocumentSerializer, JobSerializer, ResultSummarySerializer, PythonScriptSerializer, \
     PipelineSerializer, PipelineStepSerializer, PythonScriptSummarySerializer, LogSerializer, ResultSerializer, \
     PythonScriptSummarySerializer, PipelineSerializer, PipelineStepSerializer, \
-    ProjectSerializer, Full_PipelineSerializer, Full_PipelineStepSerializer
+    ProjectSerializer, Full_PipelineSerializer, Full_PipelineStepSerializer, EdgeSerializer
 from .tasks.tasks import runJob
 
 mimetypes.init()
@@ -702,8 +702,8 @@ class UploadScriptViewSet(APIView):
 class PipelineViewSet(viewsets.ModelViewSet):
     # You can sort the nested objects if you want when you prefetch them. You can also presort them at serialization time
     # Went with the former approach. See more here: https://stackoverflow.com/questions/48247490/django-rest-framework-nested-serializer-order/48249910
-    queryset = Pipeline.objects.prefetch_related('owner', Prefetch('pipelinesteps',
-        queryset=PipelineStep.objects.order_by('-step_number'))).all().order_by('-name')
+    queryset = Pipeline.objects.prefetch_related('owner', Prefetch('pipelinenodes',
+                                                                   queryset=PipelineNode.objects.order_by('-step_number'))).all().order_by('-name')
     filter_fields = ['id', 'name', 'production']
 
     pagination_class = None
@@ -730,18 +730,101 @@ class PipelineViewSet(viewsets.ModelViewSet):
     # Clears any existing test jobs and creates a new one.
     @action(methods=['get'], detail=True)
     def get_full_pipeline(self, request, pk=None):
-        # try:
-        pipeline = Pipeline.objects.prefetch_related('pipelinesteps','owner').get(id=pk)
-        serializer = Full_PipelineSerializer(pipeline, many=False)
-        return Response(serializer.data)
 
+        try:
+
+            pipeline = Pipeline.objects.prefetch_related('pipelinenodes','owner').get(id=pk)
+            serializer = Full_PipelineSerializer(pipeline, many=False)
+            return Response(serializer.data)
+
+        except Exception as e:
+            return Response(e,
+                        status=status.HTTP_400_BAD_REQUEST)
+
+    # Creates a JSON object of the form that react-flowchart expects
+    @action(methods=['get'], detail=True)
+    def render_digraph(self, request, pk=None):
+
+        try:
+            nodes = PipelineNode.objects.prefetch_related('out_edges', 'in_edges').filter(parent_pipeline__id=pk)
+            edges = Edge.objects.filter(parent_pipeline__id=pk)
+
+            digraph = {
+                "offset": {
+                    "x": 0,
+                    "y": 0,
+                },
+                "scale": 1,
+                "selected": {},
+                "hovered": {},
+            }
+            renderedNodes = {}
+            renderedEdges = {}
+
+            for node in nodes:
+
+                ports = {}
+
+                if node.type==PipelineNode.SCRIPT:
+                    ports = {
+                        "output": {
+                            "id": 'output',
+                            "type": 'output',
+                        },
+                        "input": {
+                            "id": 'input',
+                            "type": 'input',
+                        },
+                    }
+                # TODO - handle more node types
+
+                renderedNode = {
+                    "id": f"{node.id}",
+                    "type": node.type,
+                    "script": {
+                        "id": node.script.id,
+                        "human_name": node.script.human_name,
+                        "type": node.script.type,
+                        "supported_file_types": node.script.supported_file_types,
+                        "description": node.script.description
+                    },
+                    "position": {
+                        "x": node.x_coord,
+                        "y": node.y_coord
+                    },
+                    "ports": ports
+                }
+
+                renderedNodes[f"{node.id}"] = renderedNode
+
+            for edge in edges:
+                 renderedEdges[f"{edge.id}"] = {
+                     "id": f"{edge.id}",
+                     "from": {
+                         "nodeId": f"{edge.start_node.id}",
+                         "portId": "output"
+                     },
+                     "to": {
+                         "nodeId": f"{edge.end_node.id}",
+                         "portId": "input"
+                     }
+                 }
+
+            digraph['nodes'] = renderedNodes
+            digraph['links'] = renderedEdges
+
+            return JsonResponse(digraph)
+
+        except Exception as e:
+            return Response(e,
+                        status=status.HTTP_400_BAD_REQUEST)
 
 # This mixin lets DRF inbound serialized determine if a list or single object is being passed in... IF, it's a list,
 # will instantiate any serializer with the many=True option, allowing for bulk updates and creates.
 # https://stackoverflow.com/questions/14666199/how-do-i-create-multiple-model-instances-with-django-rest-framework
 # the actual answer in that SO doesn't work right as it can't handle both lists and objects.
 class PipelineStepViewSet(ListInputModelMixin, viewsets.ModelViewSet):
-    queryset = PipelineStep.objects.all().order_by('-name')
+    queryset = PipelineNode.objects.all().order_by('-name')
     filter_fields = ['id', 'name', 'parent_pipeline']
 
     pagination_class = None
@@ -786,7 +869,7 @@ class PipelineStepViewSet(ListInputModelMixin, viewsets.ModelViewSet):
     @action(methods=['put'], detail=True)
     def test_step_transform_script(self, request, pk=None):
         try:
-            step = PipelineStep.objects.get(id=pk)
+            step = PipelineNode.objects.get(id=pk)
             input_data = request.data['input_data']
             return_data = {"error": "No errors."}
 

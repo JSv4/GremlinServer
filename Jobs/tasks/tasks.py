@@ -13,7 +13,7 @@ from django.core.files.base import ContentFile
 from django.db import connection
 
 from config import celery_app
-from ..models import Job, Document, PipelineStep, Result, PythonScript, ResultInputData, ResultData
+from ..models import Job, Document, PipelineNode, Result, PythonScript, ResultInputData, ResultData
 from celery import chain, group, chord
 from celery.signals import celeryd_after_setup
 from .task_helpers import exec_with_return, returnScriptMethod, buildScriptInput, \
@@ -265,7 +265,7 @@ def runJob(*args, jobId=-1, endStep=-1, **kwargs):
             log += "\nJob pipeline is: {0}".format(pipeline)
 
             # Get pipeline steps
-            steps = PipelineStep.objects.filter(parent_pipeline=pipeline.id).all()
+            steps = PipelineNode.objects.filter(parent_pipeline=pipeline.id).all()
             log += "\nRaw pipeline steps are: {0}".format(steps)
 
             # Order the pipeline steps
@@ -403,7 +403,7 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, stepId=-1, scriptId=-1,
     try:
         doc = Document.objects.get(id=docId)
         job = Job.objects.get(id=jobId)
-        step = PipelineStep.objects.get(id=stepId)
+        step = PipelineNode.objects.get(id=stepId)
         script = PythonScript.objects.get(id=scriptId)
 
         # Check that the provided doc file type is compatible with the given script
@@ -613,7 +613,7 @@ def applyPythonScriptToJob(*args, jobId=-1, stepId=-1, scriptId=-1, **kwargs):
     # Build the inputs for this script...
     try:
         job = Job.objects.get(id=jobId)
-        step = PipelineStep.objects.get(id=stepId)
+        step = PipelineNode.objects.get(id=stepId)
         script = PythonScript.objects.get(id=scriptId)
 
         # Build json inputs for job, which are built from both step settings in the job settings and
@@ -812,7 +812,7 @@ def resultsMerge(*args, jobId=-1, stepId=-1, **kwargs):
     start_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
 
     job = Job.objects.get(id=jobId)
-    step = PipelineStep.objects.get(id=stepId)
+    step = PipelineNode.objects.get(id=stepId)
     results = Result.objects.filter(job_step=step, job=job)
     log += "\nI am a results merger and I detect there are this many results: " + str(len(results))
 

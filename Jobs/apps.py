@@ -16,25 +16,25 @@ class JobsConfig(AppConfig):
             update_python_script_on_save, update_pipeline_schema, \
             renumber_pipeline_steps_on_delete, renumber_pipeline_steps_on_create_or_update, \
             process_doc_on_create_atomic
-        from .models import Job, Document, PythonScript, PipelineStep
+        from .models import Job, Document, PythonScript, PipelineNode
 
         # After a pipeline step is deleted, regenerate the schema for the pipeline
-        post_delete.connect(update_pipeline_schema, sender=PipelineStep,
+        post_delete.connect(update_pipeline_schema, sender=PipelineNode,
                             dispatch_uid=uuid.uuid4())
 
         # After a pipeline step is saved / updated, regenerate the schema for the linked pipeline (if applicable)
-        post_save.connect(update_pipeline_schema, sender=PipelineStep,
+        post_save.connect(update_pipeline_schema, sender=PipelineNode,
                           dispatch_uid=uuid.uuid4())
 
         pre_save.connect(update_pipeline_schema, sender=PythonScript,
                          dispatch_uid=uuid.uuid4())
 
         # After a pipeline step is deleted, renumber all subsequent pipeline steps in that pipeline
-        pre_delete.connect(renumber_pipeline_steps_on_delete, sender=PipelineStep,
+        pre_delete.connect(renumber_pipeline_steps_on_delete, sender=PipelineNode,
                            dispatch_uid=uuid.uuid4())
 
         # Before committing a pipeline step to db, renumber other steps linked to same pipeline
-        pre_save.connect(renumber_pipeline_steps_on_create_or_update, sender=PipelineStep,
+        pre_save.connect(renumber_pipeline_steps_on_create_or_update, sender=PipelineNode,
                          dispatch_uid=uuid.uuid4())
 
         # This is how jobs are launched. If we detect that a job is switched from queued = false to queued = true, run job.

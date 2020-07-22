@@ -1,7 +1,7 @@
 from django.contrib import admin
 
-from .models import Document, Job, Result, PythonScript, Pipeline, PipelineStep, \
-	TaskLogEntry, JobLogEntry, ResultInputData, ResultData
+from .models import Document, Job, Result, PythonScript, Pipeline, PipelineNode, \
+	TaskLogEntry, JobLogEntry, ResultInputData, ResultData, Edge
 
 @admin.register(Document)
 class DocumentAdmin(admin.ModelAdmin):
@@ -18,7 +18,7 @@ class JobAdmin(admin.ModelAdmin):
 	list_display = ['name','queued','started', 'error', 'finished','status', 'creation_time']
 	search_fields = ['name']
 
-@admin.register(PipelineStep)
+@admin.register(PipelineNode)
 class PipelineStepAdmin(admin.ModelAdmin):
 	list_display = ['name','script']
 	search_fields = ['name']
@@ -27,6 +27,10 @@ class PipelineStepAdmin(admin.ModelAdmin):
 class ScriptAdmin(admin.ModelAdmin):
 	list_display = ['pk', 'human_name', 'type', 'description', 'mode']
 	search_fields = ['human_name']
+
+@admin.register(Edge)
+class EdgeAdmin(admin.ModelAdmin):
+    list_display = ['pk']
 
 @admin.register(TaskLogEntry)
 class TaskLogAdmin(admin.ModelAdmin):
