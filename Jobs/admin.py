@@ -1,7 +1,7 @@
 from django.contrib import admin
 
 from .models import Document, Job, Result, PythonScript, Pipeline, PipelineNode, \
-	TaskLogEntry, JobLogEntry, ResultInputData, ResultData, Edge
+	TaskLogEntry, JobLogEntry, Edge
 
 @admin.register(Document)
 class DocumentAdmin(admin.ModelAdmin):
@@ -45,10 +45,3 @@ class PipelineAdmin(admin.ModelAdmin):
 	list_display = ['name', 'description']
 	search_fields = ['name']
 
-@admin.register(ResultData)
-class ResultDataAdmin(admin.ModelAdmin):
-	list_display = ['id']
-
-@admin.register(ResultInputData)
-class ResultInputDataAdmin(admin.ModelAdmin):
-	list_display = ['id']

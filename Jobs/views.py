@@ -368,7 +368,7 @@ class JobViewSet(viewsets.ModelViewSet):
 
 
 class FileResultsViewSet(viewsets.ModelViewSet):
-    queryset = Result.objects.select_related('owner', 'job', 'job_step', 'doc', 'input_data', 'output_data').exclude(
+    queryset = Result.objects.select_related('owner', 'job', 'pipeline_node', 'doc', 'input_data', 'output_data').exclude(
         file='')
     filter_fields = ['id', 'job__id', 'start_time', 'stop_time']
     pagination_class = SmallResultsSetPagination
@@ -377,7 +377,7 @@ class FileResultsViewSet(viewsets.ModelViewSet):
 
 
 class ResultsViewSet(viewsets.ModelViewSet):
-    queryset = Result.objects.select_related('owner', 'job', 'job_step', 'doc', 'input_data',
+    queryset = Result.objects.select_related('owner', 'job', 'pipeline_node', 'doc', 'input_data',
                                              'output_data').all().order_by('-job__id')
     filter_fields = ['id', 'job__id', 'start_time', 'stop_time']
 
@@ -776,24 +776,54 @@ class PipelineViewSet(viewsets.ModelViewSet):
                             "type": 'input',
                         },
                     }
+                elif node.type==PipelineNode.ROOT_NODE:
+                    ports = {
+                        "output": {
+                            "id": 'output',
+                            "type": 'output',
+                        },
+                    }
                 # TODO - handle more node types
 
+                print("Try to render node")
+                print(f"Node: {node}")
                 renderedNode = {
                     "id": f"{node.id}",
+                    "name": node.name,
+                    "settings": node.step_settings,
+                    "input_transform":node.input_transform,
                     "type": node.type,
-                    "script": {
-                        "id": node.script.id,
-                        "human_name": node.script.human_name,
-                        "type": node.script.type,
-                        "supported_file_types": node.script.supported_file_types,
-                        "description": node.script.description
-                    },
                     "position": {
                         "x": node.x_coord,
                         "y": node.y_coord
                     },
                     "ports": ports
                 }
+                print(renderedNode)
+
+                # Only need to handle instances where script is null (e.g. where the node is a root node and there's
+                # no linked script because it's hard coded on the backend
+                if node.type=="ROOT_NODE":
+                    # If the default pre-processor has been overwritten... use linked script details
+                    if node.script == None:
+                        renderedNode["script"] = {
+                            "id": -1,
+                            "human_name": "Pre Processor",
+                            "type": "RUN_ON_JOB_DOCS",
+                            "supported_file_types": "",
+                            "description": "Default pre-processor to ensure docx, doc and pdf files are extracted."
+                        }
+                    #otherwise... provide default values
+                    else:
+                        renderedNode["script"] = {
+                            "id": node.script.id,
+                            "human_name": node.script.human_name,
+                            "type": node.script.type,
+                            "supported_file_types": node.script.supported_file_types,
+                            "description": node.script.description
+                        }
+                else:
+                    renderedNode["script"] = {}
 
                 renderedNodes[f"{node.id}"] = renderedNode
 
@@ -834,7 +864,7 @@ class PipelineStepViewSet(ListInputModelMixin, viewsets.ModelViewSet):
     @action(methods=['get'], detail=True, url_name='JobLogs', url_path='JobLogs/(?P<job_id>[0-9]+)')
     def logs(self, request, pk=None, job_id=None):
         try:
-            results = Result.objects.filter(job_step=pk, job=job_id)
+            results = Result.objects.filter(pipeline_node=pk, job=job_id)
             logText = ""
 
             for count, result in enumerate(results):
@@ -882,3 +912,12 @@ class PipelineStepViewSet(ListInputModelMixin, viewsets.ModelViewSet):
 
         except Exception as e:
             return JsonResponse({"output_data": {}, "error": "ERROR: {0}".format(e)})
+
+
+class EdgeViewSet(ListInputModelMixin, viewsets.ModelViewSet):
+    queryset = Edge.objects.all().order_by('id')
+    filter_fields = ['id', 'start_node__id', 'end_node__id']
+
+    pagination_class = None
+    serializer_class = EdgeSerializer
+    permission_classes = [IsAuthenticated & WriteOnlyIfIsAdminOrEng]

@@ -134,7 +134,7 @@ class PythonScript(models.Model):
     env_variables = models.TextField("Environment Variables", blank=True, null=False, default="")
 
     # Expected JsonSchema goes here. Based on v7 of JsonSchema. For now, this needs to be entered manually.
-    required_inputs = models.TextField("Required Inputs", blank=True, default="")
+    schema = models.TextField("Input Schema", blank=True, default="")
 
     # is this script ready to use (have all imports and setup steps been executed?)
     mode = models.CharField(
@@ -237,8 +237,42 @@ class Pipeline(models.Model):
     schema = models.TextField("Job Settings", blank=True, default="")
     supported_files = models.TextField("Supported File Types", blank=True, default="")
 
+    root_node = models.ForeignKey("PipelineNode", blank=True, null=True, on_delete=models.SET_NULL)
+
     def __str__(self):
         return self.name
+
+    def save(self, *args, **kwargs):
+
+        # If this is a new model, create the root node (the relationship to which can't be changed via the serializers,
+        # though the node itself can be modified):
+        #
+        # How to tell if save is new save or update (apparently it's not well-documented):
+        # https://stackoverflow.com/questions/907695/in-a-django-model-custom-save-method-how-should-you-identify-a-new-object
+        if self._state.adding:
+
+            # If this is a new pipeline, create the root node.
+            # Once we switch to the new node and edge architecture, there will be no need to create or manage
+            # "step_number" value...
+
+            super(Pipeline, self).save(*args, **kwargs)
+
+            root = PipelineNode.objects.create(**{
+                "type": PipelineNode.ROOT_NODE,
+                "script": None,
+                "name": "Pre-Processor",
+                "owner": self.owner,
+                "parent_pipeline": self,
+                "step_number": 0
+            })
+
+            # Link the new root_node type node to the root_node of the pipeline that's being created
+            self.root_node = root
+
+            self.save()
+
+        else:
+            super(Pipeline, self).save(*args, **kwargs)
 
 class PipelineNode(models.Model):
 
@@ -317,10 +351,10 @@ class Edge(models.Model):
     )
 
     label = models.TextField("Link Label", blank=True, default="")
-    start_node = models.ForeignKey(PipelineNode, null=True, related_name='out_edges', on_delete=models.SET_NULL)
-    end_node = models.ForeignKey(PipelineNode, null=True, related_name='in_edges', on_delete=models.SET_NULL)
+    start_node = models.ForeignKey(PipelineNode, null=True, related_name='out_edges', on_delete=models.CASCADE)
+    end_node = models.ForeignKey(PipelineNode, null=True, related_name='in_edges', on_delete=models.CASCADE)
     transform_script = models.TextField("Data Transform Script", blank=True, null=False, default="")
-    parent_pipeline = models.ForeignKey(Pipeline, null=True, related_name='pipeline_edges', on_delete=models.SET_NULL)
+    parent_pipeline = models.ForeignKey(Pipeline, null=True, blank=False, related_name='pipeline_edges', on_delete=models.CASCADE)
 
 class Document(models.Model):
 
@@ -386,7 +420,7 @@ class Result(models.Model):
 
     #Relationships
     job = models.ForeignKey(Job, on_delete=models.CASCADE, null=False)
-    job_step = models.ForeignKey(PipelineNode, on_delete=models.CASCADE, null=True)
+    pipeline_node = models.ForeignKey(PipelineNode, on_delete=models.CASCADE, null=True)
     doc = models.ForeignKey(Document, on_delete=models.SET_NULL, null=True)
 
     # Timing variables
@@ -394,11 +428,12 @@ class Result(models.Model):
     stop_time = models.DateTimeField("Step Stop Date and Time", blank=True, null=True)
 
     # Inputs
-    input_settings = models.TextField("Input Settings", blank=True, null=False, default="") # what input_setting were passed in
-    input_data = models.ForeignKey('ResultInputData', null=True, on_delete=models.SET_NULL)
+    input_settings = models.TextField("Input Settings", blank=True, default="") # what input_setting were passed in
+    transformed_input_data = models.TextField("Transformed Input Json Data", blank=True, default="")
+    raw_input_data = models.TextField("Raw Input Json Data", blank=True, default="")
 
     # Outputs
-    output_data = models.ForeignKey('ResultData', null=True, on_delete=models.SET_NULL)
+    output_data = models.TextField('Result Data', blank=False, default="")
     file = models.FileField("Results File", upload_to='data/results/results/', blank=True, null=True)
 
     def has_file(self):
@@ -407,65 +442,8 @@ class Result(models.Model):
         else:
             return False
 
-    def output_data_value(self):
-
-        jsonObj = None
-
-        if self.output_data:
-            try:
-                jsonObj = json.loads(self.output_data.output_data)
-            except:
-                pass
-
-        return jsonObj
-
-    def raw_input_data_value(self):
-
-        jsonObj = None
-
-        if self.input_data:
-            try:
-                jsonObj = json.loads(self.input_data.raw_input_data)
-            except:
-                pass
-
-        return jsonObj
-
-    def transformed_input_data_value(self):
-
-        jsonObj = None
-
-        if self.input_data:
-            try:
-                jsonObj = json.loads(self.input_data.transformed_input_data)
-            except:
-                pass
-
-        return jsonObj
-
     def __str__(self):
-        if self.job_step:
-            return "Job {0} Step {0} Result".format(self.job.name, self.job_step.name)
+        if self.pipeline_node:
+            return "Job {0} Step {0} Result".format(self.job.name, self.pipeline_node.name)
         else:
             return "Job {0} Result".format(self.job.name)
-
-class ResultData(models.Model):
-
-    owner = models.ForeignKey(
-        get_user_model(),
-        on_delete=models.CASCADE,
-        default=1
-    )
-
-    output_data = models.TextField("Output JSON Data", blank=False, null=False, default="")
-
-class ResultInputData(models.Model):
-
-    owner = models.ForeignKey(
-        get_user_model(),
-        on_delete=models.CASCADE,
-        default=1
-    )
-
-    transformed_input_data: TextField = models.TextField("Transformed Input Json Data", blank=True, null=False, default="")
-    raw_input_data: TextField = models.TextField("Raw Input Json Data", blank=True, null=False, default="")

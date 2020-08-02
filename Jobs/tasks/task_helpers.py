@@ -66,8 +66,46 @@ def isSuccessMessage(message):
     return message[0:end] == JOB_SUCCESS
 
 
-def sendCallback(job):
+# Can be used to combine arrays but only add unique items from addArray to targetArray.
+def addUniquesToArray(targetArray, addArray):
+    seen = set(targetArray)
+    for item in addArray:
+        if item not in seen:  # faster than `word not in output`
+            seen.add(item)
+            targetArray.append(item)
+    return targetArray
 
+
+def buildNodePipelineRecursively(node, pipeline):
+    print(f"buildNodePipelineRecursively for node {node} and pipeline {pipeline}")
+
+    nodes = []
+    pipelineNodes = []
+
+    in_edges = Edge.objects.filter(end_node=node, parent_pipeline=pipeline).prefetch_related('start_node')
+    out_edges = Edge.objects.filter(start_node=node, parent_pipeline=pipeline).prefetch_related('end_node')
+
+    for e in in_edges:
+        pipelineNodes.append(e.start_node)
+    print(f"Finished edge assembly: {pipelineNodes}")
+
+    if out_edges.count() == 0:
+        pipelineNodes.append(node)
+    else:
+        for e in out_edges:
+            nodes.append(buildNodePipelineRecursively(e.end_node, pipeline))
+
+    print(f"Finished out_edge traversal: {nodes}")
+
+    for node in nodes:
+        addUniquesToArray(pipelineNodes, node)
+
+    print(f"Final node array: {pipelineNodes}")
+
+    return pipelineNodes
+
+
+def sendCallback(job):
     try:
         logger.info("There is a callback... preparing to make callback")
 
@@ -83,7 +121,6 @@ def sendCallback(job):
         data = {}
 
         if result:
-
             with default_storage.open(filename, mode='rb') as file:
                 fileBytes = io.BytesIO(file.read()).getvalue()
 
@@ -102,14 +139,76 @@ def sendCallback(job):
     except Exception as e:
         logger.warn(f"Error on trying to send callback on job completion: {e}")
 
+
+# given a stepId, return a list of the preceding nodes
+def getPrecedingNodes(nodeId, ids_only=False):
+    try:
+
+        # First get the edges pointing to this node and prefetch the start_nodes
+        precedents = Edge.objects.filter(end_node__id=nodeId).prefetch_related('start_node')
+
+        nodes = []
+
+        # Now, build a list of the start_nodes for each edge pointing to nodeId
+        for p in precedents:
+            if ids_only:
+                nodes.append(p.start_node.id)
+
+            else:
+                nodes.append(p.start_node)
+
+        return nodes
+
+    except Exception as e:
+        return []
+
+
+def getPrecedingResults(job, node):
+    try:
+        previous_data = {}
+
+        preceding_nodes = getPrecedingNodes(node.id, ids_only=True)
+        preceding_results = Result.objects.filter(job=job, pipeline_node__id__in=[preceding_nodes])
+
+        for pr in preceding_results:
+            previous_data[pr.pipeline_node.id] = json.loads(preceding_results.output_data)
+
+        return previous_data
+
+    except Exception as e:
+        logger.error(f"Error trying to get preceding results for node {node.id}: {e}")
+        return {}
+
+
+# Given a pipeline id, traverse the pipeline tree and produce a json that user can use to scaffold up
+def getPipelineInputJSONTemplate(pipelineId):
+    try:
+
+        schemaTemplate = {}
+        nodes = PipelineNode.objects.prefetch_related('out_edges', 'in_edges') \
+            .filter(parent_pipeline__id=pipelineId).order_by('id')
+
+        for n in nodes:
+            schemaTemplate[n.id] = {
+                "Name": n.name,
+                "Type": n.type,
+                "Inputs": json.loads(n.step_settings)
+            }
+
+        return schemaTemplate
+
+    except Exception as e:
+        return {}
+
+
 # Given a job and a step id, look up the job inputs, step inputs and assemble combined inputs, always overwriting
-# step-level settings with job-level settings
-def buildScriptInput(stepNumber, stringifiedJobSettings, stringifiedStepSettings, stringifiedScriptSchema):
+# script-level settings with step-level settings and, finally, with job-level settings
+def buildScriptInput(pipeline_node, job, script):
     scriptInputs = {}
 
-    # First try to get the step settings
+    # First try to get the node settings
     try:
-        scriptInputs = json.loads(stringifiedStepSettings)
+        scriptInputs = json.loads(pipeline_node.step_settings)
         print("Mark script")
         print(scriptInputs)
     except:
@@ -119,10 +218,10 @@ def buildScriptInput(stepNumber, stringifiedJobSettings, stringifiedStepSettings
     # The inputs should be stored in the job in a json object of form { schema : [ step_1_schema, step_2_schema, etc.] }
     # Try to load the job inputs, which should be stored as valid json string in the json_inputs field.
     try:
-        jobInputs = json.loads(stringifiedJobSettings)
+        jobInputs = json.loads(job.job_inputs)
         print("Job Inputs:")
         print(jobInputs)
-        jobInputs = jobInputs.schema[stepNumber]
+        jobInputs = jobInputs.schema[pipeline_node.id]
         print("Mark job input")
     except:
         jobInputs = {}
@@ -134,18 +233,17 @@ def buildScriptInput(stepNumber, stringifiedJobSettings, stringifiedStepSettings
     # Check that the compiled schema works
     try:
         # also check that the inputs are valid for the schema
-        schema = json.loads(stringifiedScriptSchema)
-        print("Schema loaded")
+        schema = json.loads(script.schema)
+        logger.info(f"Schema loaded: {schema}")
         try:
             jsonschema.validate(scriptInputs, schema)
-            logger.info("jobInputs match schema.")
-            print("Return scriptInputs")
-            print(scriptInputs)
+            logger.info(f"Schema check passed for inputs:\n{scriptInputs}")
             return scriptInputs
         except Exception as e:
+            logger.warning(f"Schema check failed for inputs:\n{scriptInputs}")
             pass
     except Exception as e:
-        print("Couldn't test schema. Error: {0}".format(e))
+        logger.error("Couldn't test schema. Error: {0}".format(e))
         pass
 
     return {}

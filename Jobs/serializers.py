@@ -1,7 +1,7 @@
 from rest_framework_bulk import BulkSerializerMixin, BulkListSerializer
 
 from .models import Document, Job, Result, PythonScript, PipelineNode, \
-    Pipeline, TaskLogEntry, JobLogEntry, ResultInputData, ResultData, Edge
+    Pipeline, TaskLogEntry, JobLogEntry, Edge
 from rest_framework import serializers
 
 # This is only used for DRF to request fields necessary to create Docs, parent jobs and start job all in one shot
@@ -76,7 +76,9 @@ class PythonScriptSerializer(serializers.ModelSerializer):
 
 class PythonScriptSummarySerializer_READ_ONLY(serializers.ModelSerializer):
 
-    owner = serializers.ReadOnlyField(source='owner.username')
+    owner = serializers.HiddenField(
+        default=serializers.CurrentUserDefault()
+    )
 
     class Meta:
         model = PythonScript
@@ -184,13 +186,14 @@ class EdgeSerializer(serializers.ModelSerializer):
     owner = serializers.HiddenField(
         default=serializers.CurrentUserDefault()
     )
-    start_node = serializers.PrimaryKeyRelatedField(many=False, queryset= PythonScript.objects.all())
-    end_node = serializers.PrimaryKeyRelatedField(many=False, queryset= PythonScript.objects.all())
+    start_node = serializers.PrimaryKeyRelatedField(many=False, queryset= PipelineNode.objects.all())
+    end_node = serializers.PrimaryKeyRelatedField(many=False, queryset= PipelineNode.objects.all())
+    parent_pipeline = serializers.PrimaryKeyRelatedField(many=False, queryset= Pipeline.objects.all())
 
     class Meta:
         model = Edge
         read_only_fields = ['id', 'owner']
-        fields = ['id', 'owner', 'start_node', 'end_node', 'label', 'transform_script']
+        fields = ['id', 'owner', 'start_node', 'end_node', 'label', 'transform_script', 'parent_pipeline']
 
 
 class PipelineStepSerializer(serializers.ModelSerializer):
@@ -220,12 +223,13 @@ class PipelineStepSerializer_READONLY(serializers.ModelSerializer):
         fields = ['id', 'name', 'type', 'parent_pipeline', 'script', 'step_settings',
                   'step_number', 'input_transform', 'owner', 'x_coord', 'y_coord']
 
-
 class Full_PipelineStepSerializer(serializers.ModelSerializer):
 
-    owner = serializers.ReadOnlyField(source='owner.username')
-    script = PythonScriptSummarySerializer(many=False, read_only=True)
-    parent_pipeline = serializers.ReadOnlyField(source='parent_pipeline.id')
+    owner = serializers.HiddenField(
+        default=serializers.CurrentUserDefault()
+    )
+    script = serializers.PrimaryKeyRelatedField(many=False, queryset= PythonScript.objects.all())
+    parent_pipeline = serializers.PrimaryKeyRelatedField(many=False, queryset= Pipeline.objects.all())
 
     class Meta:
         model = PipelineNode
@@ -234,14 +238,16 @@ class Full_PipelineStepSerializer(serializers.ModelSerializer):
                   'step_number', 'input_transform', 'owner', 'x_coord', 'y_coord']
 
 class Full_PipelineSerializer(serializers.ModelSerializer):
+
     owner = serializers.ReadOnlyField(source='owner.username')
     pipelinenodes = Full_PipelineStepSerializer(many=True, read_only=True)
+    root_node = serializers.PrimaryKeyRelatedField(many=False, queryset= PipelineNode.objects.all())
 
     class Meta:
         model = Pipeline
         fields = ['id', 'name', 'schema', 'description', 'total_steps', 'owner', 'production',
-                  'supported_files', 'pipelinenodes']
-        read_only_fields = ['id', 'schema', 'total_steps', 'owner']
+                  'supported_files', 'pipelinenodes','root_node']
+        read_only_fields = ['id', 'schema', 'total_steps', 'owner', 'root_node']
 
 
 class ResultSummarySerializer(serializers.ModelSerializer):
@@ -250,18 +256,16 @@ class ResultSummarySerializer(serializers.ModelSerializer):
         default=serializers.CurrentUserDefault()
     )
     job = serializers.PrimaryKeyRelatedField(many=False, queryset=Job.objects.all())
-    job_step = serializers.PrimaryKeyRelatedField(many=False, queryset= PipelineNode.objects.all())
+    pipeline_node = serializers.PrimaryKeyRelatedField(many=False, queryset= PipelineNode.objects.all())
     doc = serializers.PrimaryKeyRelatedField(many=False, queryset=Document.objects.all())
-    input_data = serializers.PrimaryKeyRelatedField(many=False, queryset=ResultInputData.objects.all())
-    output_data = serializers.PrimaryKeyRelatedField(many=False, queryset=ResultData.objects.all())
 
     class Meta:
         model = Result
 
-        fields = ['id', 'name', 'job', 'doc', 'job_step',
-                  'start_time', 'stop_time', 'file', 'type', 'owner', 'output_data', 'input_data']
-        read_only_fields = ['id', 'name', 'job', 'doc', 'job_step',
-                  'start_time', 'stop_time', 'file', 'type', 'owner', 'output_data', 'input_data']
+        fields = ['id', 'name', 'job', 'doc', 'pipeline_node',
+                  'start_time', 'stop_time', 'file', 'type', 'owner']
+        read_only_fields = ['id', 'name', 'job', 'doc', 'pipeline_node',
+                  'start_time', 'stop_time', 'file', 'type', 'owner']
 
 class ResultSerializer(serializers.ModelSerializer):
 
@@ -270,18 +274,16 @@ class ResultSerializer(serializers.ModelSerializer):
     )
     job = serializers.PrimaryKeyRelatedField(many=False, queryset=Job.objects.all())
     doc = serializers.PrimaryKeyRelatedField(many=False, queryset=Document.objects.all())
-    job_step = serializers.PrimaryKeyRelatedField(many=False, queryset=PipelineNode.objects.all())
+    pipeline_node = serializers.PrimaryKeyRelatedField(many=False, queryset=PipelineNode.objects.all())
 
     class Meta:
         model = Result
 
-        fields = ['id', 'name', 'job', 'doc', 'job_step', 'start_time', 'stop_time', 'file', 'has_file', 'type',
-                  'owner', 'output_data_value', 'raw_input_data_value', 'transformed_input_data_value']
+        fields = ['id', 'name', 'job', 'doc', 'pipeline_node', 'start_time', 'stop_time', 'file', 'has_file', 'type',
+                  'owner',  'output_data', 'transformed_input_data', 'raw_input_data']
 
-        read_only_fields = ['id', 'name', 'job', 'doc', 'job_step', 'start_time', 'stop_time', 'has_file', 'file',
-                            'type', 'owner', 'output_data_value', 'raw_input_data_value',
-                            'transformed_input_data_value']
-
+        read_only_fields = ['id', 'name', 'job', 'doc', 'pipeline_node', 'start_time', 'stop_time', 'has_file', 'file',
+                            'type', 'owner', 'output_data', 'transformed_input_data', 'raw_input_data']
 
 class LogSerializer(serializers.ModelSerializer):
 
