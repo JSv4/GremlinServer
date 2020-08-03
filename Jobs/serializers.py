@@ -62,7 +62,7 @@ class PythonScriptSerializer(serializers.ModelSerializer):
             'human_name',
             'type',
             'supported_file_types',
-            'required_inputs',
+            'schema',
             'mode',
             'script',
             'description',
@@ -145,20 +145,25 @@ class PipelineSerializer(serializers.ModelSerializer):
     owner = serializers.HiddenField(
         default=serializers.CurrentUserDefault()
     )
+    root_node = serializers.PrimaryKeyRelatedField(many=False, queryset=PipelineNode.objects.all(), required=False)
+
     class Meta:
         model = Pipeline
-        fields = ['id', 'name', 'schema', 'description', 'total_steps', 'owner', 'production', 'supported_files']
-        read_only_fields = ['id', 'total_steps', 'schema', 'owner', 'supported_files']
-
+        fields = ['id', 'name', 'schema', 'description', 'total_steps', 'owner', 'production',
+                  'supported_files', 'root_node']
+        read_only_fields = ['id', 'total_steps', 'schema', 'owner', 'supported_files', 'root_node']
 
 class PipelineSerializer_READONLY(serializers.ModelSerializer):
 
     owner = serializers.ReadOnlyField(source='owner.username')
+    root_node = serializers.PrimaryKeyRelatedField(many=False, queryset=PipelineNode.objects.all(), required=False)
 
     class Meta:
         model = Pipeline
-        fields = ['id', 'name', 'schema', 'description', 'total_steps', 'owner', 'production', 'supported_files']
-        read_only_fields = ['id', 'name', 'schema', 'description', 'total_steps', 'owner', 'production', 'supported_files']
+        fields = ['id', 'name', 'schema', 'description', 'total_steps', 'owner', 'production',
+                  'supported_files', 'root_node']
+        read_only_fields = ['id', 'name', 'schema', 'description', 'total_steps', 'owner',
+                            'production', 'supported_files', 'root_node']
 
 
 class JobSerializer(serializers.ModelSerializer):
@@ -241,7 +246,7 @@ class Full_PipelineSerializer(serializers.ModelSerializer):
 
     owner = serializers.ReadOnlyField(source='owner.username')
     pipelinenodes = Full_PipelineStepSerializer(many=True, read_only=True)
-    root_node = serializers.PrimaryKeyRelatedField(many=False, queryset= PipelineNode.objects.all())
+    root_node = Full_PipelineStepSerializer(many=False, read_only=True, required=False)
 
     class Meta:
         model = Pipeline

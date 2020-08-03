@@ -368,7 +368,7 @@ class JobViewSet(viewsets.ModelViewSet):
 
 
 class FileResultsViewSet(viewsets.ModelViewSet):
-    queryset = Result.objects.select_related('owner', 'job', 'pipeline_node', 'doc', 'input_data', 'output_data').exclude(
+    queryset = Result.objects.select_related('owner', 'job', 'pipeline_node', 'doc').exclude(
         file='')
     filter_fields = ['id', 'job__id', 'start_time', 'stop_time']
     pagination_class = SmallResultsSetPagination
@@ -377,8 +377,7 @@ class FileResultsViewSet(viewsets.ModelViewSet):
 
 
 class ResultsViewSet(viewsets.ModelViewSet):
-    queryset = Result.objects.select_related('owner', 'job', 'pipeline_node', 'doc', 'input_data',
-                                             'output_data').all().order_by('-job__id')
+    queryset = Result.objects.select_related('owner', 'job', 'pipeline_node', 'doc').all().order_by('-job__id')
     filter_fields = ['id', 'job__id', 'start_time', 'stop_time']
 
     pagination_class = LargeResultsSetPagination
@@ -555,10 +554,10 @@ class PythonScriptViewSet(viewsets.ModelViewSet):
             else:
                 config['env_variables'] = ""
 
-            if script.required_inputs:
-                config['required_inputs'] = script.required_inputs
+            if script.schema:
+                config['schema'] = script.schema
             else:
-                config['required_inputs'] = ""
+                config['schema'] = ""
 
             if script.name:
                 config['name'] = script.name
@@ -622,7 +621,7 @@ class UploadScriptViewSet(APIView):
                 description = ""
                 supported_file_types = ""
                 env_variables = ""
-                required_inputs = ""
+                schema = ""
                 requirements = ""
                 setup_script = ""
 
@@ -641,9 +640,9 @@ class UploadScriptViewSet(APIView):
                     print("No config file @ ./config.json")
                     raise ParseError("No ./config.json config file")
                 else:
-                    with importZip.open("./config.json") as myfile:
+                    with importZip.open("./config.json") as configFile:
 
-                        config_text = myfile.read().decode('UTF-8')
+                        config_text = configFile.read().decode('UTF-8')
                         print(f"Loaded config file @ ./config.json: {config_text}")
                         config = json.loads(config_text)
                         name = config['name']
@@ -656,14 +655,14 @@ class UploadScriptViewSet(APIView):
 
                 if "./setup/requirements.txt" in importZip.namelist():
                     print("Detected requirements file @ ./setup/requirements.txt")
-                    with importZip.open("./config.json") as myfile:
-                        requirements = myfile.read().decode('UTF-8')
+                    with importZip.open("./setup/requirements.txt") as requirementsFile:
+                        requirements = requirementsFile.read().decode('UTF-8')
                 print(f"Requirements file extracted: {requirements}")
 
                 if "./setup/install.sh" in importZip.namelist():
                     print("Detected install commands @ ./setup/install.sh")
-                    with importZip.open("./setup/install.sh") as myfile:
-                        setup_script = myfile.read().decode('UTF-8')
+                    with importZip.open("./setup/install.sh") as setupFile:
+                        setup_script = setupFile.read().decode('UTF-8')
                 print(f"Importing setup_script: {setup_script}")
 
                 # We do NOT import logs in case you're looking for those imports... log are exported from live scripts
@@ -677,7 +676,7 @@ class UploadScriptViewSet(APIView):
                     description=description,
                     supported_file_types=supported_file_types,
                     env_variables=env_variables,
-                    required_inputs=required_inputs,
+                    schema=schema,
                     required_packages=requirements,
                     setup_script=setup_script,
                     type=type,
@@ -703,7 +702,7 @@ class PipelineViewSet(viewsets.ModelViewSet):
     # You can sort the nested objects if you want when you prefetch them. You can also presort them at serialization time
     # Went with the former approach. See more here: https://stackoverflow.com/questions/48247490/django-rest-framework-nested-serializer-order/48249910
     queryset = Pipeline.objects.prefetch_related('owner', Prefetch('pipelinenodes',
-                                                                   queryset=PipelineNode.objects.order_by('-step_number'))).all().order_by('-name')
+                queryset=PipelineNode.objects.order_by('-step_number'))).all().order_by('-name')
     filter_fields = ['id', 'name', 'production']
 
     pagination_class = None

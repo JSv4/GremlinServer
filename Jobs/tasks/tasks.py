@@ -268,7 +268,7 @@ def runJob(*args, jobId=-1, endStep=-1, **kwargs):
             # Get pipeline steps
             root = pipeline.root_node
             print(f"Root node: {root}")
-            pipeline_nodes = buildNodePipelineRecursively(root, pipeline)
+            pipeline_nodes = buildNodePipelineRecursively(pipeline, node=root)
             print("\nRaw pipeline nodes are: {0}".format(pipeline_nodes))
             log += "\nRaw pipeline nodes are: {0}".format(pipeline_nodes)
 
@@ -392,7 +392,7 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, nodeId=-1, scriptId=-1,
     try:
         doc = Document.objects.get(id=docId)
         job = Job.objects.get(id=jobId)
-        pipeline_node = PipelineNode.objects.get(id=nodeId).prefetch_related('script')
+        pipeline_node = PipelineNode.objects.get(id=nodeId)
         script = pipeline_node.script
 
         # Check that the provided doc file type is compatible with the given script
@@ -568,7 +568,7 @@ def applyPythonScriptToJob(*args, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
     # Build the inputs for this script...
     try:
         job = Job.objects.get(id=jobId)
-        pipeline_node = PipelineNode.objects.get(id=nodeId).prefetch_related('script')
+        pipeline_node = PipelineNode.objects.get(id=nodeId)
         script = pipeline_node.script
 
         # Build json inputs for job, which are built from both step settings in the job settings and
@@ -1129,7 +1129,7 @@ def packageJobResults(*args, jobId=-1, **kwargs):
             if r.output_data:
                 jobLogger.info("Job has results data. Not logging as we don't know how large it is...")
                 try:
-                    stepData = json.loads(r.output_data.output_data)
+                    stepData = json.loads(r.output_data)
                     jobData = {**jobData, **{r.pipeline_node.step_number: stepData}}
                     jobLogger.info("Appears we added this result successfully")
                 except Exception as e:

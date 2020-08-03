@@ -30,8 +30,8 @@ class TaskLogEntry(models.Model):
 
     logger_name = models.CharField(max_length=100)
     level = models.PositiveSmallIntegerField(choices=LOG_LEVELS, default=logging.ERROR, db_index=True)
-    msg = models.TextField()
-    trace = models.TextField(blank=True, null=True)
+    msg = models.TextField(blank=True, default="")
+    trace = models.TextField(blank=True, default="")
     create_datetime = models.DateTimeField(auto_now_add=True, verbose_name='Created at')
 
     def __str__(self):
@@ -116,22 +116,22 @@ class PythonScript(models.Model):
     )
 
     # Description of the python script
-    description = models.TextField("Script Description", blank=True, null=False, default="")
+    description = models.TextField("Script Description", blank=True, default="")
 
     # Supported document types (this will be a serialized list of supported extensions - e.g. .pdf, .doc, .docx, etc.)
     supported_file_types = models.TextField("Supported File Types", blank=False, default='[".pdf"]')
 
     # The actual python code to execute
-    script = models.TextField("Python Code", blank=True, null=False, default="")
+    script = models.TextField("Python Code", blank=True, default="")
 
     # the list of python packages to install (use pip requirements.txt format)
-    required_packages = models.TextField("Required Python Packages", blank=True, null=False, default="")
+    required_packages = models.TextField("Required Python Packages", blank=True, default="")
 
     # code to call after install required packages but before this script is ready (e.g. NLTK data files)
-    setup_script = models.TextField("Python setup script", blank=True, null=False, default="")
+    setup_script = models.TextField("Python setup script", blank=True, default="")
 
     # stringified json representation of env varis
-    env_variables = models.TextField("Environment Variables", blank=True, null=False, default="")
+    env_variables = models.TextField("Environment Variables", blank=True, default="")
 
     # Expected JsonSchema goes here. Based on v7 of JsonSchema. For now, this needs to be entered manually.
     schema = models.TextField("Input Schema", blank=True, default="")
@@ -223,9 +223,9 @@ class Job(models.Model):
 
 class Pipeline(models.Model):
 
-    name = models.CharField(max_length=512, default="Line Name", blank=False)
-    description = models.TextField(default="", blank=True)
-    production = models.BooleanField(default=False, blank=True)
+    name = models.CharField("Pipeline Name", max_length=512, default="Line Name", blank=False)
+    description = models.TextField("Pipeline Description", default="", blank=True)
+    production = models.BooleanField("Available in Production", default=False, blank=True)
 
     owner = models.ForeignKey(
         get_user_model(),
@@ -234,7 +234,7 @@ class Pipeline(models.Model):
     )
 
     total_steps = models.IntegerField("Step Count", blank=False, default=0)
-    schema = models.TextField("Job Settings", blank=True, default="")
+    schema = models.TextField("Pipeline Schema", blank=True, default="")
     supported_files = models.TextField("Supported File Types", blank=True, default="")
 
     root_node = models.ForeignKey("PipelineNode", blank=True, null=True, on_delete=models.SET_NULL)
@@ -321,7 +321,7 @@ class PipelineNode(models.Model):
 
     # Mapping script... will be use to transform data coming into the script. Helpful in building pipelines where
     # you probably want to transform input data.
-    input_transform = models.TextField("Input Transformation", blank=True, null=False, default="")
+    input_transform = models.TextField("Input Transformation", blank=True, default="")
 
     # Persisted settings - these will get overriden by any job_settings for this step that have conflicting
     # keys. The overwrite happens in the tasks.py module.
@@ -353,7 +353,7 @@ class Edge(models.Model):
     label = models.TextField("Link Label", blank=True, default="")
     start_node = models.ForeignKey(PipelineNode, null=True, related_name='out_edges', on_delete=models.CASCADE)
     end_node = models.ForeignKey(PipelineNode, null=True, related_name='in_edges', on_delete=models.CASCADE)
-    transform_script = models.TextField("Data Transform Script", blank=True, null=False, default="")
+    transform_script = models.TextField("Data Transform Script", blank=True, default="")
     parent_pipeline = models.ForeignKey(Pipeline, null=True, blank=False, related_name='pipeline_edges', on_delete=models.CASCADE)
 
 class Document(models.Model):

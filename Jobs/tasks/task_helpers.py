@@ -76,31 +76,48 @@ def addUniquesToArray(targetArray, addArray):
     return targetArray
 
 
-def buildNodePipelineRecursively(node, pipeline):
-    print(f"buildNodePipelineRecursively for node {node} and pipeline {pipeline}")
+def buildNodePipelineRecursively(pipeline, node=None, ):
 
-    nodes = []
-    pipelineNodes = []
+    print(f"buildNodePipelineRecursively for node {node} for pipeline {pipeline}")
 
-    in_edges = Edge.objects.filter(end_node=node, parent_pipeline=pipeline).prefetch_related('start_node')
-    out_edges = Edge.objects.filter(start_node=node, parent_pipeline=pipeline).prefetch_related('end_node')
+    try:
 
-    for e in in_edges:
-        pipelineNodes.append(e.start_node)
-    print(f"Finished edge assembly: {pipelineNodes}")
+        nodes = []
+        pipelineNodes = []
 
-    if out_edges.count() == 0:
-        pipelineNodes.append(node)
-    else:
-        for e in out_edges:
-            nodes.append(buildNodePipelineRecursively(e.end_node, pipeline))
+        if not node:
+            root_node = pipeline.root_node
+        else:
+            root_node = node
 
-    print(f"Finished out_edge traversal: {nodes}")
+        if not root_node:
+            logger.error(f"Error trying to build array of pipeline nodes - "
+                         f"it appears there is no root node for this pipeline.")
+            return []
 
-    for node in nodes:
-        addUniquesToArray(pipelineNodes, node)
+        in_edges = Edge.objects.filter(end_node=root_node, parent_pipeline=pipeline).prefetch_related('start_node')
+        out_edges = Edge.objects.filter(start_node=root_node, parent_pipeline=pipeline).prefetch_related('end_node')
 
-    print(f"Final node array: {pipelineNodes}")
+        for e in in_edges:
+            pipelineNodes.append(e.start_node)
+        print(f"Finished edge assembly: {pipelineNodes}")
+
+        if out_edges.count() == 0:
+            pipelineNodes.append(root_node)
+        else:
+            for e in out_edges:
+                nodes.append(buildNodePipelineRecursively(pipeline, node=e.end_node))
+
+        print(f"Finished out_edge traversal: {nodes}")
+
+        for node in nodes:
+            addUniquesToArray(pipelineNodes, node)
+
+        print(f"Final node array: {pipelineNodes}")
+
+    except Exception as e:
+        print(f"Error trying to buildNodePipelineRecursively: {e}")
+        pipelineNodes = []
 
     return pipelineNodes
 
@@ -185,8 +202,8 @@ def getPipelineInputJSONTemplate(pipelineId):
     try:
 
         schemaTemplate = {}
-        nodes = PipelineNode.objects.prefetch_related('out_edges', 'in_edges') \
-            .filter(parent_pipeline__id=pipelineId).order_by('id')
+        nodes = PipelineNode.objects.order_by('id').filter(parent_pipeline__id=pipelineId)\
+            .prefetch_related('out_edges', 'in_edges')
 
         for n in nodes:
             schemaTemplate[n.id] = {
