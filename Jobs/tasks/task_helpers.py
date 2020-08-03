@@ -181,14 +181,19 @@ def getPrecedingNodes(nodeId, ids_only=False):
 
 
 def getPrecedingResults(job, node):
+    #TODO - somehow this error: Error trying to get preceding results for node 7: Field 'id' expected a number but got [3].
+
+    print(f"getPrecedingResults for job{job} node {node}")
+
     try:
         previous_data = {}
 
         preceding_nodes = getPrecedingNodes(node.id, ids_only=True)
-        preceding_results = Result.objects.filter(job=job, pipeline_node__id__in=[preceding_nodes])
+        print(f"preceding_nodes is {preceding_nodes}")
 
-        for pr in preceding_results:
-            previous_data[pr.pipeline_node.id] = json.loads(preceding_results.output_data)
+        for pn in preceding_nodes:
+            pr = Result.objects.get(job=job, pipeline_node__id=pn)
+            previous_data[pr.pipeline_node.id] = json.loads(pr.output_data)
 
         return previous_data
 
@@ -221,13 +226,16 @@ def getPipelineInputJSONTemplate(pipelineId):
 # Given a job and a step id, look up the job inputs, step inputs and assemble combined inputs, always overwriting
 # script-level settings with step-level settings and, finally, with job-level settings
 def buildScriptInput(pipeline_node, job, script):
+
+    print(f"buildScriptInput for node: {pipeline_node}")
+
     scriptInputs = {}
 
     # First try to get the node settings
     try:
-        scriptInputs = json.loads(pipeline_node.step_settings)
-        print("Mark script")
-        print(scriptInputs)
+        print(f"Script settings: {pipeline_node.step_settings}")
+        scriptInputs = json.loads(pipeline_node.step_settings) #TODO - Why is this type string?
+        print(f"scriptInputs: {scriptInputs} of type {type(scriptInputs)}")
     except:
         pass
 
@@ -236,16 +244,20 @@ def buildScriptInput(pipeline_node, job, script):
     # Try to load the job inputs, which should be stored as valid json string in the json_inputs field.
     try:
         jobInputs = json.loads(job.job_inputs)
-        print("Job Inputs:")
-        print(jobInputs)
-        jobInputs = jobInputs.schema[pipeline_node.id]
-        print("Mark job input")
+        print(f"Job Inputs: {jobInputs}")
+        print(f"jobInputs type is: {type(jobInputs)}")
+        print(f"Current pipeline node id is: {pipeline_node.id}")
+        print(f"Pipeline node id type: {type(pipeline_node.id)}")
+        str_id = f"{pipeline_node.id}" #TODO - why is this weird half-way conversion of the dict happening.
+        print(f"This nodes schema obj is: {jobInputs[str_id]}")
+        jobInputs = jobInputs[str_id]['schema']
+        print(f"Mark job input: {jobInputs} of type {type(jobInputs)}")
     except:
         jobInputs = {}
 
     # Try to combine the two, overwriting step settings with job settings if there's a collision:
     scriptInputs = {**scriptInputs, **jobInputs}
-    print("Mark script combination")
+    print(f"Inputs merged: {scriptInputs}")
 
     # Check that the compiled schema works
     try:

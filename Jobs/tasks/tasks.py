@@ -60,6 +60,7 @@ logger.setLevel(logging.DEBUG)
 step_logger = logging.getLogger('task_db')
 job_logger = logging.getLogger('job_db')
 
+
 # Cleanup for temporary files
 def cleanup(temp_name):
     for filename in iglob(temp_name + '*' if temp_name else temp_name):
@@ -69,17 +70,17 @@ def cleanup(temp_name):
             if e.errno != ENOENT:
                 raise e
 
+
 # One of the challenges of switching to a docker-based deploy is that system env isn't persisted and
 # The whole goal of this system is to dynamically provision and reprovision scripts into a data processing
 # pipeline. Sooo.... current workaround (to increase performance on *script* run is to preprocess all of the setup
 # on startup. Currently the approach is super naive. Doesn't do any checking to see if this is necessary so could be duplicative
 @celeryd_after_setup.connect
 def setup_direct_queue(sender, instance, **kwargs):
-
     logging.info(f"Celery worker is up.\nSender:{sender}.\nInstance:\n {instance}")
 
     try:
-        scripts=PythonScript.objects.all()
+        scripts = PythonScript.objects.all()
 
         # For each pythonScript, run the setup code...
         for pythonScript in scripts:
@@ -152,10 +153,11 @@ class FaultTolerantTask(celery.Task):
     def after_return(self, *args, **kwargs):
         connection.close()
 
+
 @celery_app.task(base=FaultTolerantTask, name="Run Script Package Installer")
 def runScriptPackageInstaller(*args, scriptId=-1, **kwargs):
     try:
-        pythonScript=PythonScript.objects.get(id=scriptId)
+        pythonScript = PythonScript.objects.get(id=scriptId)
 
         packages = pythonScript.required_packages.split("\n")
         if len(packages) > 0:
@@ -180,9 +182,8 @@ def runScriptPackageInstaller(*args, scriptId=-1, **kwargs):
 
 @celery_app.task(base=FaultTolerantTask, name="Run Script Setup Script Installer")
 def runScriptSetupScript(*args, scriptId=-1, **kwargs):
-
     try:
-        pythonScript=PythonScript.objects.get(id=scriptId)
+        pythonScript = PythonScript.objects.get(id=scriptId)
 
         setupScript = pythonScript.setup_script
         if setupScript != "":
@@ -211,9 +212,8 @@ def runScriptSetupScript(*args, scriptId=-1, **kwargs):
 
 @celery_app.task(base=FaultTolerantTask, name="Run Script Env Variable Installer")
 def runScriptEnvVarIntaller(*args, scriptId=-1, **kwargs):
-
     try:
-        pythonScript=PythonScript.objects.get(id=scriptId)
+        pythonScript = PythonScript.objects.get(id=scriptId)
 
         envVariables = pythonScript.env_variables
         if envVariables != "":
@@ -265,7 +265,13 @@ def runJob(*args, jobId=-1, endStep=-1, **kwargs):
             log += "\nJob pipeline is: {0}".format(pipeline)
             print("\nJob pipeline is: {0}".format(pipeline))
 
-            # Get pipeline steps
+            # flatten the digraph and ensure every node only runs after all of the nodes on which it could depend run...
+            # this is probably the *least* efficient way to handle this
+            # essentially taking a digraph and reducing it to a sequence of steps that is linear.
+            # you could see a better approach maybe being reducing it to "layers" and having a 2d array of layers
+            # where each "layer" is an array of arrays of all of the same nodes on the same level of the same branch of
+            # the digraph (if you think about is as a tree - which, duh, it's not, but hopefully that helps illustrate
+            # the possible next iteration of this.
             root = pipeline.root_node
             print(f"Root node: {root}")
             pipeline_nodes = buildNodePipelineRecursively(pipeline, node=root)
@@ -275,7 +281,7 @@ def runJob(*args, jobId=-1, endStep=-1, **kwargs):
             jobDocs = Document.objects.filter(job=jobId)
             log += "\nJob has {0} docs.".format(len(jobDocs))
 
-            celery_jobs=[]
+            celery_jobs = []
 
             # Build the celery job pipeline (Note there may be some inefficiencies in how this is constructed)
             # Will fix in future release.
@@ -288,20 +294,22 @@ def runJob(*args, jobId=-1, endStep=-1, **kwargs):
                 # a dummy chord terminator (as there's nothing we want to do with the underlying extractTextForDoc
                 # return values.
                 # See more here: https://stackoverflow.com/questions/15123772/celery-chaining-groups-and-subtasks-out-of-order-execution
-                if node.type=="ROOT_NODE":
+                if node.type == "ROOT_NODE":
                     celery_jobs.append(chord(group(
                         [extractTextForDoc.s(docId=d.id) for d in jobDocs]),
                         chordfinisher.s()))
-                #TODO - handle packaging step separately similar to the root_node above
-                #For through jobs...
-                elif node.type=="THROUGH_SCRIPT":
+                # TODO - handle packaging step separately similar to the root_node above
+                # For through jobs...
+                elif node.type == "THROUGH_SCRIPT":
                     if node.script.type == PythonScript.RUN_ON_JOB_ALL_DOCS_PARALLEL:
                         celery_jobs.append(chord(group(
-                            [applyPythonScriptToJobDoc.s(docId=d.id, jobId=jobId, nodeId=node.id, scriptId=node.script.id)
+                            [applyPythonScriptToJobDoc.s(docId=d.id, jobId=jobId, nodeId=node.id,
+                                                         scriptId=node.script.id)
                              for d in jobDocs]),
                             resultsMerge.si(jobId=jobId, stepId=node.id)))  # used to terminate with chordfinisher.s()
                     elif node.script.type == PythonScript.RUN_ON_JOB:
-                        celery_jobs.append(applyPythonScriptToJob.s(jobId=jobId, nodeId=node.id, scriptId=node.script.id))
+                        celery_jobs.append(
+                            applyPythonScriptToJob.s(jobId=jobId, nodeId=node.id, scriptId=node.script.id))
                     else:
                         message = "{0} - {1}".format(JOB_FAILED_DID_NOT_FINISH,
                                                      "Unrecognized script type: {0}".format(node.script.type))
@@ -368,7 +376,6 @@ def stopPipeline(*args, jobId=-1, **kwargs):
 # processingTask is assumed to take arguments job and doc
 @celery_app.task(base=FaultTolerantTask, name="Celery Wrapper for Python Job Doc Task")
 def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
-
     log = "\napplyPythonScriptToJobDoc - args is:{0}".format(args)
     jobLogger = JobLogger(jobId=jobId, name="applyPythonScriptToJobDoc")
 
@@ -455,7 +462,6 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, nodeId=-1, scriptId=-1,
         except:
             docBytes = None
 
-
         # If there was a preceding step, grab the data from that step and pass it as an input, otherwise, this is a
         # first (possibly only) step and we want to pass in job settings.
         preceding_data = {}
@@ -488,18 +494,18 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, nodeId=-1, scriptId=-1,
         scriptLogger = TaskLogger(resultId=result.id, name="User_Doc_Script")
         log += f"\nStarting script for job ID #{job.id} (step # {pipeline_node.step_number} on doc ID #{doc.id}) with inputs: {scriptInputs}"
         logging.info(f"Doc is {doc}")
-        logging.info(f"Doc has text: {len(doc.rawText)>0}")
+        logging.info(f"Doc has text: {len(doc.rawText) > 0}")
 
         try:
             finished, message, data, fileBytes, file_ext = createFunctionFromString(script.script)(*args,
-                                                docType=doc.type,
-                                                docText=doc.rawText,
-                                                docName=doc.name,
-                                                docByteObj=docBytes,
-                                                logger=scriptLogger,
-                                                scriptInputs=scriptInputs,
-                                                previousData=transformed_data,
-                                                **kwargs)
+                                                                                                   docType=doc.type,
+                                                                                                   docText=doc.rawText,
+                                                                                                   docName=doc.name,
+                                                                                                   docByteObj=docBytes,
+                                                                                                   logger=scriptLogger,
+                                                                                                   scriptInputs=scriptInputs,
+                                                                                                   previousData=transformed_data,
+                                                                                                   **kwargs)
 
             logging.info(f"Finished {finished}")
             logging.info(f"Message {message}")
@@ -548,7 +554,6 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, nodeId=-1, scriptId=-1,
 
 @celery_app.task(base=FaultTolerantTask, name="Celery Wrapper for Python Job Task")
 def applyPythonScriptToJob(*args, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
-
     jobLogger = JobLogger(jobId=jobId, name="applyPythonScriptToJob")
     logger.info("applyPythonScriptToJob - jobId: {0}".format(jobId))
     logger.info("\napplyPythonScriptToJob - scriptId: {0}".format(scriptId))
@@ -582,13 +587,12 @@ def applyPythonScriptToJob(*args, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
         preceding_data = {}
         try:
             preceding_data = getPrecedingResults(job, pipeline_node)
-            logger.info(f"Successfully got preceding data: {preceding_data}")
+            print(f"Successfully got preceding data: {preceding_data}")
 
         except Exception as e:
-            logger.warning(f"\nTrying to build preceding data but encountered an unexpected error: {e}")
+            print(f"\nTrying to build preceding data but encountered an unexpected error: {e}")
 
-
-        logger.info("\nStarting data transform")
+        print("\nStarting data transform")
 
         # transform the scriptInputs (if there is a transform script provided)
         transformed_data = preceding_data
@@ -596,7 +600,7 @@ def applyPythonScriptToJob(*args, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
         if pipeline_node.input_transform:
             transformed_data = transformStepInputs(pipeline_node.input_transform, preceding_data)
 
-        logger.info("\nData transform complete")
+        print("\nData transform complete")
 
         result = Result.objects.create(
             name="Pipeline: {0} | Step #{1}".format(job.pipeline.name, pipeline_node.script.name),
@@ -619,18 +623,18 @@ def applyPythonScriptToJob(*args, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
             # call the script with the appropriate Gremlin / Django objects already loaded (don't want the user
             # interacting with underlying Django infrastructure.
             finished, message, data, fileBytes, file_ext, docPackaging = createFunctionFromString(script.script)(*args,
-                                                                                        job=job,
-                                                                                        step=pipeline_node,
-                                                                                        logger=scriptLogger,
-                                                                                        scriptInputs=scriptInputs,
-                                                                                        previousData=transformed_data,
-                                                                                        **kwargs)
+                                                                                                                 job=job,
+                                                                                                                 step=pipeline_node,
+                                                                                                                 logger=scriptLogger,
+                                                                                                                 scriptInputs=scriptInputs,
+                                                                                                                 previousData=transformed_data,
+                                                                                                                 **kwargs)
 
-            logging.info(f"Finished {finished}")
-            logging.info(f"Message {message}")
-            logging.info(f"data {data}")
-            logging.info(f"file extension {file_ext} of type {type(file_ext)}")
-            logging.info(f"doc packaging instructions are {docPackaging}")
+            print(f"Finished {finished}")
+            print(f"Message {message}")
+            print(f"data {data}")
+            print(f"file extension {file_ext} of type {type(file_ext)}")
+            print(f"doc packaging instructions are {docPackaging}")
 
             # if there is a set of doc packaging instructions, build the doc package
             if docPackaging and isinstance(docPackaging, dict):
@@ -663,15 +667,17 @@ def applyPythonScriptToJob(*args, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
                 packageZip.close()
 
                 result.file.save("./step_results/{0}/{1}/Step {2} ({3}).{4}".format(jobId, nodeId, pipeline_node.name,
-                                                                                    pipeline_node.step_number+1, "zip"),
+                                                                                    pipeline_node.step_number + 1,
+                                                                                    "zip"),
                                  ContentFile(packageBytes.getvalue()))
 
-            #Otherwise, store the file object returned
+            # Otherwise, store the file object returned
             # take file object and save to filesystem provided it is not none and plausibly could be an extension
             elif file_ext and len(file_ext) > 1:
                 file_data = ContentFile(fileBytes)
                 result.file.save("./step_results/{0}/{1}/Step {2} ({3}).{4}".format(jobId, nodeId, pipeline_node.name,
-                                                                                    pipeline_node.step_number+1, file_ext),
+                                                                                    pipeline_node.step_number + 1,
+                                                                                    file_ext),
                                  file_data)
 
             result.output_data = json.dumps(data, indent=4)
@@ -689,17 +695,17 @@ def applyPythonScriptToJob(*args, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
 
             else:
 
-                jobLogger.error(msg="not finished")
+                print("not finished")
                 return JOB_FAILED_DID_NOT_FINISH
 
         except Exception as err:
 
-            jobLogger.error("Error on running Job Script:")
+            print(f"Error on running Job Script: {err}")
             jobLogger.error(traceback.print_exc())
 
             message = "{0} - Error thrown by user script in applyPythonScriptToJob for job #{1} script #{2}: {3}".format(
                 JOB_FAILED_DID_NOT_FINISH, jobId, scriptId, err)
-            logger.info("\n"+message)
+            print("\n" + message)
             logger.error(message)
 
             stopJob(jobId=jobId, status=message, error=True)
@@ -711,7 +717,7 @@ def applyPythonScriptToJob(*args, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
 
     except Exception as e:
         message = "{0} - Error setting up inputs for Step #{1}: {2}".format(JOB_FAILED_DID_NOT_FINISH, nodeId, e)
-        logger.error("\n"+message)
+        print("\n" + message)
         return message
 
 
@@ -724,6 +730,7 @@ def applyPythonScriptToJob(*args, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
 def chordfinisher(previousMessage, *args, **kwargs):
     return previousMessage
 
+
 # for now, does nothing other than echo args...
 # the intent will be to package up all of the individual results data objs for a given step
 # and pass them along to the next step
@@ -731,7 +738,7 @@ def chordfinisher(previousMessage, *args, **kwargs):
 def resultsMerge(*args, jobId=-1, stepId=-1, **kwargs):
     jobLogger = JobLogger(jobId=jobId, name="resultsMerge")
 
-    log="\n######### Results Merge At End of Parallel Step:"
+    log = "\n######### Results Merge At End of Parallel Step:"
 
     for arg in args:
         jobLogger.info(arg)
@@ -749,12 +756,12 @@ def resultsMerge(*args, jobId=-1, stepId=-1, **kwargs):
     outputs = {}
 
     for result in results:
-        log+=f"\nTry to package result for {result.name}"
+        log += f"\nTry to package result for {result.name}"
         try:
             input_settings[f"{result.doc.id}"] = json.loads(result.input_settings)
         except Exception as e:
-            log+=f"\nError while trying to input settings for step {result.pipeline_node.step_number} and " \
-                              f"doc {result.doc.id}: {e}"
+            log += f"\nError while trying to input settings for step {result.pipeline_node.step_number} and " \
+                   f"doc {result.doc.id}: {e}"
             input_settings[f"{result.doc.id}"] = {}
 
         try:
@@ -777,7 +784,7 @@ def resultsMerge(*args, jobId=-1, stepId=-1, **kwargs):
             outputs[f"{result.doc.id}"] = json.loads(result.output_data.output_data)
         except Exception as e:
             log += f"WARNING - Error while trying to merge output data for step {result.pipeline_node.step_number} and " \
-                f"doc {result.doc.id}: {e}"
+                   f"doc {result.doc.id}: {e}"
             outputs[f"{result.doc.id}"] = {}
 
     step_result = Result.objects.create(
@@ -789,28 +796,29 @@ def resultsMerge(*args, jobId=-1, stepId=-1, **kwargs):
         stop_time=datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ"),
         raw_input_data=json.dumps(raw_inputs),
         transformed_input_data=json.dumps(transformed_inputs),
-        output_data = json.dumps({"documents": outputs})
+        output_data=json.dumps({"documents": outputs})
     )
     step_result.save()
 
-    log+="\Step result created and saved."
+    log += "\Step result created and saved."
 
     # iterate job step completion count
     job.completed_tasks = job.completed_tasks + 1
     job.save()
 
-    log+="\nResults merger complete."
+    log += "\nResults merger complete."
 
     jobLogger.info(msg=log)
 
     return JOB_SUCCESS
 
+
 @celery_app.task(base=FaultTolerantTask, name="Ensure Script is Available")
 def prepareScript(*args, jobId=-1, scriptId=-1, **kwargs):
-
     try:
         if len(args) > 0 and not jobSucceeded(args[0]):
-            message = "{0} - Preceding task failed for job Id {1}. Message: {2}".format(JOB_FAILED_DID_NOT_FINISH, jobId,
+            message = "{0} - Preceding task failed for job Id {1}. Message: {2}".format(JOB_FAILED_DID_NOT_FINISH,
+                                                                                        jobId,
                                                                                         args[0])
             stopJob(jobId=jobId, status=message, error=True)
             return message
@@ -874,6 +882,7 @@ def prepareScript(*args, jobId=-1, scriptId=-1, **kwargs):
             JOB_FAILED_INVALID_DOC_ID, e)
         logger.error(message)
         return message
+
 
 # Task to install a python package list (same as you would a la "pip install package1 package 2 package3 package...")
 @celery_app.task(base=FaultTolerantTask, name="Install Python Package")
@@ -1077,7 +1086,8 @@ def packageJobResults(*args, jobId=-1, **kwargs):
         stepResults = Result.objects.filter(job=jobId, type="STEP")
 
         job = Job.objects.get(id=jobId)
-        logger.info("Job #{0} has {1} step results and {2} results total.".format(jobId, len(stepResults), len(allResults)))
+        logger.info(
+            "Job #{0} has {1} step results and {2} results total.".format(jobId, len(stepResults), len(allResults)))
 
         usingS3 = (settings.DEFAULT_FILE_STORAGE == "gremlin_gplv3.utils.storages.MediaRootS3Boto3Storage")
         jobLogger.info("UsingS3: {0}".format(usingS3))
@@ -1113,7 +1123,8 @@ def packageJobResults(*args, jobId=-1, **kwargs):
                     jobLogger.info(zip_filename)
 
                     with default_storage.open(filename, mode='rb') as file:
-                        newChildPath = "./Step {0} ({1})/{2}".format(r.pipeline_node.step_number+1, r.pipeline_node.name, zip_filename)
+                        newChildPath = "./Step {0} ({1})/{2}".format(r.pipeline_node.step_number + 1,
+                                                                     r.pipeline_node.name, zip_filename)
                         jobLogger.info(f"Zip file will be: {newChildPath}")
                         jobResultsZipData.writestr(newChildPath, file.read())
                         jobLogger.info("	--> DONE")
