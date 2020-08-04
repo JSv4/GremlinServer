@@ -366,6 +366,148 @@ class JobViewSet(viewsets.ModelViewSet):
             return Response(e,
                             status=status.HTTP_400_BAD_REQUEST)
 
+    # Creates a JSON object of the results in the form that react-flowchart expects
+    @action(methods=['get'], detail=True)
+    def render_results_digraph(self, request, pk=None):
+
+        try:
+            job = Job.objects.prefetch_related('pipeline','result_set').get(pk=pk)
+            pipeline = job.pipeline
+            nodes = PipelineNode.objects.prefetch_related('out_edges', 'in_edges').filter(parent_pipeline=pipeline)
+            edges = Edge.objects.filter(parent_pipeline=pipeline)
+            results = job.result_set
+            job_result = results.filter(job=job, type=Result.JOB)
+
+            print(f"Results: {results}")
+            print(f"Job Result: {job_result}")
+
+            result_json = None
+            if job_result.count() == 1:
+                try:
+                    result_json = {
+                        "id": job_result[0].id,
+                        "type": job_result[0].type,
+                        "output_data": json.loads(job_result[0].output_data)
+                    }
+                except:
+                    pass
+
+            digraph = {
+                "offset": {
+                    "x": 0,
+                    "y": 0,
+                },
+                "scale": 1,
+                "selected": {},
+                "hovered": {},
+                "result": result_json
+            }
+            renderedNodes = {}
+            renderedEdges = {}
+
+            for node in nodes:
+
+                #Get node result
+                node_result = results.filter(pipeline_node=node)
+                print(f"Node result for node {node} is {node_result}")
+                result = None
+                if node_result.count() == 1:
+                    try:
+                        result = {
+                            "id": node_result[0].id,
+                            "type": node_result[0].type,
+                            "output_data": json.loads(node_result[0].output_data)
+                        }
+                    except:
+                        pass
+
+                ports = {}
+
+                if node.type==PipelineNode.SCRIPT:
+                    ports = {
+                        "output": {
+                            "id": 'output',
+                            "type": 'output',
+                        },
+                        "input": {
+                            "id": 'input',
+                            "type": 'input',
+                        },
+                    }
+                elif node.type==PipelineNode.ROOT_NODE:
+                    ports = {
+                        "output": {
+                            "id": 'output',
+                            "type": 'output',
+                        },
+                    }
+                # TODO - handle more node types
+
+                print("Try to render node")
+                print(f"Node: {node}")
+                renderedNode = {
+                    "id": f"{node.id}",
+                    "name": node.name,
+                    "settings": node.step_settings,
+                    "input_transform":node.input_transform,
+                    "result": result,
+                    "type": node.type,
+                    "position": {
+                        "x": node.x_coord,
+                        "y": node.y_coord
+                    },
+                    "ports": ports
+                }
+                print(renderedNode)
+
+                # Only need to handle instances where script is null (e.g. where the node is a root node and there's
+                # no linked script because it's hard coded on the backend
+                if node.type=="ROOT_NODE":
+                    # If the default pre-processor has been overwritten... use linked script details
+                    if node.script == None:
+                        renderedNode["script"] = {
+                            "id": -1,
+                            "human_name": "Pre Processor",
+                            "type": "RUN_ON_JOB_DOCS",
+                            "supported_file_types": "",
+                            "description": "Default pre-processor to ensure docx, doc and pdf files are extracted."
+                        }
+                    #otherwise... provide default values
+                    else:
+                        renderedNode["script"] = {
+                            "id": node.script.id,
+                            "human_name": node.script.human_name,
+                            "type": node.script.type,
+                            "supported_file_types": node.script.supported_file_types,
+                            "description": node.script.description
+                        }
+                else:
+                    renderedNode["script"] = {}
+
+                renderedNodes[f"{node.id}"] = renderedNode
+
+            for edge in edges:
+                 renderedEdges[f"{edge.id}"] = {
+                     "id": f"{edge.id}",
+                     "from": {
+                         "nodeId": f"{edge.start_node.id}",
+                         "portId": "output"
+                     },
+                     "to": {
+                         "nodeId": f"{edge.end_node.id}",
+                         "portId": "input"
+                     }
+                 }
+
+            digraph['nodes'] = renderedNodes
+            digraph['links'] = renderedEdges
+
+            return JsonResponse(digraph)
+
+        except Exception as e:
+            return Response(e,
+                        status=status.HTTP_400_BAD_REQUEST)
+
 
 class FileResultsViewSet(viewsets.ModelViewSet):
     queryset = Result.objects.select_related('owner', 'job', 'pipeline_node', 'doc').exclude(
