@@ -239,6 +239,11 @@ class Pipeline(models.Model):
 
     root_node = models.ForeignKey("PipelineNode", blank=True, null=True, on_delete=models.SET_NULL)
 
+    # Rendering variables for frontend
+    scale = models.FloatField("View Scale Factor", blank=False, default=1.0)
+    x_offset = models.IntegerField("X Offset", blank=False, default=0)
+    y_offset = models.IntegerField("Y Offset", blank=False, default=0)
+
     def __str__(self):
         return self.name
 
@@ -328,8 +333,8 @@ class PipelineNode(models.Model):
     step_settings = models.TextField("Step Settings", blank=True, default="")
 
     # Frontend Render Variables
-    x_coord = models.IntegerField("X Coordinate", default=0, blank=False)
-    y_coord = models.IntegerField("Y Coordinate", default=0, blank=False)
+    x_coord = models.FloatField("X Coordinate", default=0, blank=False)
+    y_coord = models.FloatField("Y Coordinate", default=0, blank=False)
 
     # Process variables - Will deprecate step_number
     parent_pipeline = models.ForeignKey("Pipeline", related_name="pipelinenodes", null=True, on_delete=models.SET_NULL)
@@ -428,12 +433,12 @@ class Result(models.Model):
     stop_time = models.DateTimeField("Step Stop Date and Time", blank=True, null=True)
 
     # Inputs
-    input_settings = models.TextField("Input Settings", blank=True, default="") # what input_setting were passed in
-    transformed_input_data = models.TextField("Transformed Input Json Data", blank=True, default="")
-    raw_input_data = models.TextField("Raw Input Json Data", blank=True, default="")
+    input_settings = models.TextField("Input Settings", blank=True, default="{}") # what input_setting were passed in
+    transformed_input_data = models.TextField("Transformed Input Json Data", blank=True, default="{}")
+    raw_input_data = models.TextField("Raw Input Json Data", blank=True, default="{}")
 
     # Outputs
-    output_data = models.TextField('Result Data', blank=False, default="")
+    output_data = models.TextField('Result Data', blank=False, default="{}")
     file = models.FileField("Results File", upload_to='data/results/results/', blank=True, null=True)
 
     def has_file(self):

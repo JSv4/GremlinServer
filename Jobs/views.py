@@ -387,7 +387,6 @@ class JobViewSet(viewsets.ModelViewSet):
                     result_json = {
                         "id": job_result[0].id,
                         "type": job_result[0].type,
-                        "output_data": json.loads(job_result[0].output_data)
                     }
                 except:
                     pass
@@ -397,6 +396,7 @@ class JobViewSet(viewsets.ModelViewSet):
                     "x": 0,
                     "y": 0,
                 },
+                "type": ["RESULTS"],
                 "scale": 1,
                 "selected": {},
                 "hovered": {},
@@ -416,7 +416,6 @@ class JobViewSet(viewsets.ModelViewSet):
                         result = {
                             "id": node_result[0].id,
                             "type": node_result[0].type,
-                            "output_data": json.loads(node_result[0].output_data)
                         }
                     except:
                         pass
@@ -889,13 +888,15 @@ class PipelineViewSet(viewsets.ModelViewSet):
         try:
             nodes = PipelineNode.objects.prefetch_related('out_edges', 'in_edges').filter(parent_pipeline__id=pk)
             edges = Edge.objects.filter(parent_pipeline__id=pk)
+            pipeline = Pipeline.objects.get(pk=pk)
 
             digraph = {
                 "offset": {
-                    "x": 0,
-                    "y": 0,
+                    "x": pipeline.x_offset,
+                    "y": pipeline.y_offset,
                 },
-                "scale": 1,
+                "type": ["PIPELINE"],
+                "scale": pipeline.scale,
                 "selected": {},
                 "hovered": {},
             }

@@ -150,7 +150,7 @@ class PipelineSerializer(serializers.ModelSerializer):
     class Meta:
         model = Pipeline
         fields = ['id', 'name', 'schema', 'description', 'total_steps', 'owner', 'production',
-                  'supported_files', 'root_node']
+                  'supported_files', 'root_node', 'scale','x_offset', 'y_offset']
         read_only_fields = ['id', 'total_steps', 'schema', 'owner', 'supported_files', 'root_node']
 
 class PipelineSerializer_READONLY(serializers.ModelSerializer):
@@ -161,9 +161,9 @@ class PipelineSerializer_READONLY(serializers.ModelSerializer):
     class Meta:
         model = Pipeline
         fields = ['id', 'name', 'schema', 'description', 'total_steps', 'owner', 'production',
-                  'supported_files', 'root_node']
+                  'supported_files', 'root_node', 'scale','x_offset', 'y_offset']
         read_only_fields = ['id', 'name', 'schema', 'description', 'total_steps', 'owner',
-                            'production', 'supported_files', 'root_node']
+                            'production', 'supported_files', 'root_node', 'scale','x_offset', 'y_offset']
 
 
 class JobSerializer(serializers.ModelSerializer):
@@ -251,7 +251,7 @@ class Full_PipelineSerializer(serializers.ModelSerializer):
     class Meta:
         model = Pipeline
         fields = ['id', 'name', 'schema', 'description', 'total_steps', 'owner', 'production',
-                  'supported_files', 'pipelinenodes','root_node']
+                  'supported_files', 'pipelinenodes', 'root_node', 'scale', 'x_offset', 'y_offset']
         read_only_fields = ['id', 'schema', 'total_steps', 'owner', 'root_node']
 
 
