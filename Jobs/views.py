@@ -384,10 +384,7 @@ class JobViewSet(viewsets.ModelViewSet):
             result_json = None
             if job_result.count() == 1:
                 try:
-                    result_json = {
-                        "id": job_result[0].id,
-                        "type": job_result[0].type,
-                    }
+                    result_json = job_result[0].id
                 except:
                     pass
 
@@ -400,7 +397,7 @@ class JobViewSet(viewsets.ModelViewSet):
                 "scale": 1,
                 "selected": {},
                 "hovered": {},
-                "result": result_json
+                "result_id": result_json
             }
             renderedNodes = {}
             renderedEdges = {}
@@ -413,10 +410,7 @@ class JobViewSet(viewsets.ModelViewSet):
                 result = None
                 if node_result.count() == 1:
                     try:
-                        result = {
-                            "id": node_result[0].id,
-                            "type": node_result[0].type,
-                        }
+                        result = node_result[0].id
                     except:
                         pass
 
@@ -449,7 +443,7 @@ class JobViewSet(viewsets.ModelViewSet):
                     "name": node.name,
                     "settings": node.step_settings,
                     "input_transform":node.input_transform,
-                    "result": result,
+                    "result_id": result,
                     "type": node.type,
                     "position": {
                         "x": node.x_coord,
