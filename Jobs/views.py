@@ -444,6 +444,7 @@ class JobViewSet(viewsets.ModelViewSet):
                     "settings": node.step_settings,
                     "input_transform":node.input_transform,
                     "result_id": result,
+                    "job_id": job.id,
                     "type": node.type,
                     "position": {
                         "x": node.x_coord,
@@ -456,8 +457,9 @@ class JobViewSet(viewsets.ModelViewSet):
                 # Only need to handle instances where script is null (e.g. where the node is a root node and there's
                 # no linked script because it's hard coded on the backend
                 if node.type=="ROOT_NODE":
-                    # If the default pre-processor has been overwritten... use linked script details
-                    if node.script == None:
+
+                    # Provide default values where there is no script
+                    if node.script is None:
                         renderedNode["script"] = {
                             "id": -1,
                             "human_name": "Pre Processor",
@@ -465,7 +467,18 @@ class JobViewSet(viewsets.ModelViewSet):
                             "supported_file_types": "",
                             "description": "Default pre-processor to ensure docx, doc and pdf files are extracted."
                         }
-                    #otherwise... provide default values
+                    # If the default pre-processor has been overwritten... use linked script details
+                    else:
+                        renderedNode["script"] = {
+                            "id": node.script.id,
+                            "human_name": node.script.human_name,
+                            "type": node.script.type,
+                            "supported_file_types": node.script.supported_file_types,
+                            "description": node.script.description
+                        }
+                elif node.type=="THROUGH_SCRIPT":
+                    if node.script is None:
+                        renderedNode["script"] = {}
                     else:
                         renderedNode["script"] = {
                             "id": node.script.id,
