@@ -195,6 +195,8 @@ class Job(models.Model):
     finished = models.BooleanField("Job Finished", default=False, blank=False)
     status = models.TextField("Job Status", default="Not Started", blank=False)
     completed_tasks = models.IntegerField("Completed Step Tasks", default=0, blank=False)
+    start_time = models.DateTimeField("Step Start Date and Time", blank=True, null=True)
+    stop_time = models.DateTimeField("Step Stop Date and Time", blank=True, null=True)
 
     # API Integration values
     callback = models.TextField("Callback URL", default="", blank=True,)
@@ -291,7 +293,7 @@ class PipelineNode(models.Model):
 
     ### FIELDS #####################################################################################
     #What is the control job and what is the python scripy
-    script = models.ForeignKey(PythonScript, on_delete=models.SET_NULL, null=True)
+    script = models.ForeignKey(PythonScript, on_delete=models.SET_NULL, blank=True, null=True)
 
     # Node Type Choices
     SCRIPT = "THROUGH_SCRIPT"
@@ -397,7 +399,7 @@ class Document(models.Model):
 
 class Result(models.Model):
 
-    # Script enumerations for type (ready for deployment vs test)
+    # Enumerations for type (ready for deployment vs test)
     DOC = 'DOC'
     STEP = 'STEP'
     JOB = 'JOB'
@@ -407,13 +409,14 @@ class Result(models.Model):
         (JOB, _('Job Result')),
     ]
 
+    # Owner (and, in the future, owner groups, permissions, etc.)
     owner = models.ForeignKey(
         get_user_model(),
         on_delete=models.CASCADE,
         default=1
     )
 
-    #metadata
+    # Metadata
     name = models.CharField("Result Name", max_length=512, default="Result", blank=False, null=False)
     type = models.CharField(
         max_length=128,
@@ -423,7 +426,7 @@ class Result(models.Model):
         default=JOB,
     )
 
-    #Relationships
+    # Relationships
     job = models.ForeignKey(Job, on_delete=models.CASCADE, null=False)
     pipeline_node = models.ForeignKey(PipelineNode, on_delete=models.CASCADE, null=True)
     doc = models.ForeignKey(Document, on_delete=models.SET_NULL, null=True)
@@ -431,13 +434,18 @@ class Result(models.Model):
     # Timing variables
     start_time = models.DateTimeField("Step Start Date and Time", blank=True, null=True)
     stop_time = models.DateTimeField("Step Stop Date and Time", blank=True, null=True)
+    started = models.BooleanField("Step started", default=False, blank=False)
+    error = models.BooleanField("Step in Error Status", default=False, blank=False)
+    finished = models.BooleanField("Step Finished", default=False, blank=False)
 
-    # Inputs
-    input_settings = models.TextField("Input Settings", blank=True, default="{}") # what input_setting were passed in
+    # Data Input Transform Script Text
     transformed_input_data = models.TextField("Transformed Input Json Data", blank=True, default="{}")
+
+    # Data Inputs
+    input_settings = models.TextField("Input Settings", blank=True, default="{}") # what input_setting were passed in
     raw_input_data = models.TextField("Raw Input Json Data", blank=True, default="{}")
 
-    # Outputs
+    # Data Outputs
     output_data = models.TextField('Result Data', blank=False, default="{}")
     file = models.FileField("Results File", upload_to='data/results/results/', blank=True, null=True)
 

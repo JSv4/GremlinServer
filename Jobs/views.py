@@ -371,22 +371,10 @@ class JobViewSet(viewsets.ModelViewSet):
     def render_results_digraph(self, request, pk=None):
 
         try:
-            job = Job.objects.prefetch_related('pipeline','result_set').get(pk=pk)
+            job = Job.objects.prefetch_related('pipeline','result_set', 'document_set').get(pk=pk)
             pipeline = job.pipeline
             nodes = PipelineNode.objects.prefetch_related('out_edges', 'in_edges').filter(parent_pipeline=pipeline)
             edges = Edge.objects.filter(parent_pipeline=pipeline)
-            results = job.result_set
-            job_result = results.filter(job=job, type=Result.JOB)
-
-            print(f"Results: {results}")
-            print(f"Job Result: {job_result}")
-
-            result_json = None
-            if job_result.count() == 1:
-                try:
-                    result_json = job_result[0].id
-                except:
-                    pass
 
             digraph = {
                 "offset": {
@@ -397,22 +385,11 @@ class JobViewSet(viewsets.ModelViewSet):
                 "scale": 1,
                 "selected": {},
                 "hovered": {},
-                "result_id": result_json
             }
             renderedNodes = {}
             renderedEdges = {}
 
             for node in nodes:
-
-                #Get node result
-                node_result = results.filter(pipeline_node=node)
-                print(f"Node result for node {node} is {node_result}")
-                result = None
-                if node_result.count() == 1:
-                    try:
-                        result = node_result[0].id
-                    except:
-                        pass
 
                 ports = {}
 
@@ -443,7 +420,6 @@ class JobViewSet(viewsets.ModelViewSet):
                     "name": node.name,
                     "settings": node.step_settings,
                     "input_transform":node.input_transform,
-                    "result_id": result,
                     "job_id": job.id,
                     "type": node.type,
                     "position": {
@@ -460,33 +436,15 @@ class JobViewSet(viewsets.ModelViewSet):
 
                     # Provide default values where there is no script
                     if node.script is None:
-                        renderedNode["script"] = {
-                            "id": -1,
-                            "human_name": "Pre Processor",
-                            "type": "RUN_ON_JOB_DOCS",
-                            "supported_file_types": "",
-                            "description": "Default pre-processor to ensure docx, doc and pdf files are extracted."
-                        }
+                        renderedNode["script"] = -1
                     # If the default pre-processor has been overwritten... use linked script details
                     else:
-                        renderedNode["script"] = {
-                            "id": node.script.id,
-                            "human_name": node.script.human_name,
-                            "type": node.script.type,
-                            "supported_file_types": node.script.supported_file_types,
-                            "description": node.script.description
-                        }
+                        renderedNode["script"] = node.script__id
                 elif node.type=="THROUGH_SCRIPT":
                     if node.script is None:
-                        renderedNode["script"] = {}
+                        renderedNode["script"] = None
                     else:
-                        renderedNode["script"] = {
-                            "id": node.script.id,
-                            "human_name": node.script.human_name,
-                            "type": node.script.type,
-                            "supported_file_types": node.script.supported_file_types,
-                            "description": node.script.description
-                        }
+                        renderedNode["script"] = node.script_id
                 else:
                     renderedNode["script"] = {}
 
@@ -496,11 +454,11 @@ class JobViewSet(viewsets.ModelViewSet):
                  renderedEdges[f"{edge.id}"] = {
                      "id": f"{edge.id}",
                      "from": {
-                         "nodeId": f"{edge.start_node.id}",
+                         "nodeId": f"{edge.start_node_id}",
                          "portId": "output"
                      },
                      "to": {
-                         "nodeId": f"{edge.end_node.id}",
+                         "nodeId": f"{edge.end_node_id}",
                          "portId": "input"
                      }
                  }

@@ -178,13 +178,12 @@ class JobSerializer(serializers.ModelSerializer):
         model = Job
 
         fields = ['id', 'name', 'creation_time', 'pipeline', 'queued', 'started',
-                  'error', 'finished', 'status', 'job_inputs', 'file',
+                  'error', 'finished', 'status', 'start_time', 'stop_time', 'job_inputs', 'file',
                   'completed_tasks','task_count', 'type', 'owner', 'num_docs']
 
         read_only_fields = ['id', 'creation_time', 'started', 'error', 'finished',
-                            'status', 'file','completed_tasks','task_count', 'type',
+                            'status', 'start_time', 'stop_time', 'file','completed_tasks','task_count', 'type',
                             'owner', 'num_docs']
-
 
 class EdgeSerializer(serializers.ModelSerializer):
 
