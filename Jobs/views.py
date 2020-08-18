@@ -375,6 +375,7 @@ class JobViewSet(viewsets.ModelViewSet):
             pipeline = job.pipeline
             nodes = PipelineNode.objects.prefetch_related('out_edges', 'in_edges').filter(parent_pipeline=pipeline)
             edges = Edge.objects.filter(parent_pipeline=pipeline)
+            results = job.result_set
 
             digraph = {
                 "offset": {
@@ -390,6 +391,9 @@ class JobViewSet(viewsets.ModelViewSet):
             renderedEdges = {}
 
             for node in nodes:
+
+                node_result = results.filter(pipeline_node=node)
+                print(f"Node result for node {node} is {node_result}")
 
                 ports = {}
 
@@ -419,6 +423,7 @@ class JobViewSet(viewsets.ModelViewSet):
                     "id": f"{node.id}",
                     "name": node.name,
                     "settings": node.step_settings,
+                    "result": None if not node_result.count()==1 else node_result[0].id,
                     "input_transform":node.input_transform,
                     "job_id": job.id,
                     "type": node.type,
@@ -429,6 +434,13 @@ class JobViewSet(viewsets.ModelViewSet):
                     "ports": ports
                 }
                 print(renderedNode)
+
+                # Put in result id
+                if node.script is None:
+                    renderedNode["script"] = None
+                else:
+                    renderedNode["script"] = node.script_id
+
 
                 # Only need to handle instances where script is null (e.g. where the node is a root node and there's
                 # no linked script because it's hard coded on the backend
