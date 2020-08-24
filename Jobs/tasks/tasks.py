@@ -118,6 +118,16 @@ class UserScriptError(Error):
     def __init__(self, message):
         self.message = message
 
+class PipelineError(Error):
+    """Raised when user script fails.
+
+   Attributes:
+        message -- explanation of the error
+    """
+
+    def __init__(self, message):
+        self.message = message
+
 # Tika Extraction Imports
 import tika  # python wrapper for tika server
 
@@ -326,112 +336,103 @@ def runScriptEnvVarIntaller(*args, scriptId=-1, **kwargs):
 @celery_app.task(base=FaultTolerantTask, name="Run Job")
 def runJob(*args, jobId=-1, endStep=-1, **kwargs):
 
-    returnMessage = JOB_FAILED_DID_NOT_FINISH
+    try:
 
-    #Redirect stdout and setup a job logger which will collect stdout on finish and then write to DB
-    temp_out = StringIO()
-    sys.stdout = temp_out
-    jobLogger = JobLogger(jobId=jobId, name="runJob")
+        if jobId == -1:
+            raise PipelineError(message="ERROR - No job ID was specified for runJobGremlin. You must specify a jobId.")
 
-    if jobId == -1:
-        print("ERROR - No job ID was specified for runJobGremlin. You must specify a jobId.")
-        returnMessage = JOB_FAILED_INVALID_JOB_ID
+        if len(Job.objects.filter(id=jobId)) != 1:
+            raise PipelineError(message="ERROR - There appears to be no job with jobId = {0}.".format(jobId))
 
-    elif len(Job.objects.filter(id=jobId)) != 1:
-        print("ERROR - There appears to be no job with jobId = {0}.".format(jobId))
-        returnMessage = JOB_FAILED_INVALID_DOC_ID
+        #Redirect stdout and setup a job logger which will collect stdout on finish and then write to DB
+        temp_out = StringIO()
+        jobLogger = JobLogger(jobId=jobId, name="runJob")
 
-    else:
+        job = Job.objects.get(id=jobId)
 
-        log = ""
+        job.start_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
+        job.queued = False
+        job.started = True
+        job.status = "Running..."
+        job.save()
 
-        try:
+        pipeline = job.pipeline
+        temp_out.write("Job pipeline is: {0}".format(pipeline))
+        temp_out.write("\nJob pipeline is: {0}".format(pipeline))
 
-            job = Job.objects.get(id=jobId)
+        # flatten the digraph and ensure every node only runs after all of the nodes on which it could depend run...
+        # this is probably the *least* efficient way to handle this
+        # essentially taking a digraph and reducing it to a sequence of steps that is linear.
+        # you could see a better approach maybe being reducing it to "layers" and having a 2d array of layers
+        # where each "layer" is an array of arrays of all of the same nodes on the same level of the same branch of
+        # the digraph (if you think about is as a tree - which, duh, it's not, but hopefully that helps illustrate
+        # the possible next iteration of this.
+        root = pipeline.root_node
+        temp_out.write(f"Root node: {root}")
+        pipeline_nodes = buildNodePipelineRecursively(pipeline, node=root)
+        temp_out.write("\nRaw pipeline nodes are: {0}".format(pipeline_nodes))
 
-            job.queued = False
-            job.started = True
-            job.status = "Running..."
-            job.save()
+        jobDocs = Document.objects.filter(job=jobId)
+        temp_out.write("\nJob has {0} docs.".format(len(jobDocs)))
 
-            pipeline = job.pipeline
-            log += "\nJob pipeline is: {0}".format(pipeline)
-            print("\nJob pipeline is: {0}".format(pipeline))
+        celery_jobs = []
 
-            # flatten the digraph and ensure every node only runs after all of the nodes on which it could depend run...
-            # this is probably the *least* efficient way to handle this
-            # essentially taking a digraph and reducing it to a sequence of steps that is linear.
-            # you could see a better approach maybe being reducing it to "layers" and having a 2d array of layers
-            # where each "layer" is an array of arrays of all of the same nodes on the same level of the same branch of
-            # the digraph (if you think about is as a tree - which, duh, it's not, but hopefully that helps illustrate
-            # the possible next iteration of this.
-            root = pipeline.root_node
-            print(f"Root node: {root}")
-            pipeline_nodes = buildNodePipelineRecursively(pipeline, node=root)
-            print("\nRaw pipeline nodes are: {0}".format(pipeline_nodes))
+        # Build the celery job pipeline (Note there may be some inefficiencies in how this is constructed)
+        # Will fix in future release.
+        for node in pipeline_nodes:
 
-            jobDocs = Document.objects.filter(job=jobId)
-            print("\nJob has {0} docs.".format(len(jobDocs)))
+            # Start with a job to ensure all of the documents are extracted
+            # You can't just use a group here, however, as we want to chain further jobs to it and that will
+            # create the group to a chord in a way we don't want. A workaround is to just treat this as a chord
+            # from the start, which will then allow us to chain the chords and get desired behavior IF we use
+            # a dummy chord terminator (as there's nothing we want to do with the underlying extractTextForDoc
+            # return values.
+            # See more here: https://stackoverflow.com/questions/15123772/celery-chaining-groups-and-subtasks-out-of-order-execution
+            if node.type == "ROOT_NODE":
+                celery_jobs.append(chord(group(
+                    [extractTextForDoc.s(docId=d.id) for d in jobDocs]),
+                    chordfinisher.s()))
 
-            celery_jobs = []
-
-            # Build the celery job pipeline (Note there may be some inefficiencies in how this is constructed)
-            # Will fix in future release.
-            for node in pipeline_nodes:
-
-                # Start with a job to ensure all of the documents are extracted
-                # You can't just use a group here, however, as we want to chain further jobs to it and that will
-                # create the group to a chord in a way we don't want. A workaround is to just treat this as a chord
-                # from the start, which will then allow us to chain the chords and get desired behavior IF we use
-                # a dummy chord terminator (as there's nothing we want to do with the underlying extractTextForDoc
-                # return values.
-                # See more here: https://stackoverflow.com/questions/15123772/celery-chaining-groups-and-subtasks-out-of-order-execution
-                if node.type == "ROOT_NODE":
+            # TODO - handle packaging step separately similar to the root_node above
+            # For through jobs...
+            elif node.type == "THROUGH_SCRIPT":
+                if node.script.type == PythonScript.RUN_ON_JOB_ALL_DOCS_PARALLEL:
                     celery_jobs.append(chord(group(
-                        [extractTextForDoc.s(docId=d.id) for d in jobDocs]),
-                        chordfinisher.s()))
-                # TODO - handle packaging step separately similar to the root_node above
-                # For through jobs...
-                elif node.type == "THROUGH_SCRIPT":
-                    if node.script.type == PythonScript.RUN_ON_JOB_ALL_DOCS_PARALLEL:
-                        celery_jobs.append(chord(group(
-                            [applyPythonScriptToJobDoc.s(docId=d.id, jobId=jobId, nodeId=node.id,
-                                                         scriptId=node.script.id)
-                             for d in jobDocs]),
-                            resultsMerge.si(jobId=jobId, stepId=node.id)))  # used to terminate with chordfinisher.s()
-                    elif node.script.type == PythonScript.RUN_ON_JOB:
-                        celery_jobs.append(
-                            applyPythonScriptToJob.s(jobId=jobId, nodeId=node.id, scriptId=node.script.id))
-                    else:
-                        returnMessage = "{0} - {1}".format(JOB_FAILED_DID_NOT_FINISH,
-                                                     "Unrecognized script type: {0}".format(node.script.type))
+                        [applyPythonScriptToJobDoc.s(docId=d.id, jobId=jobId, nodeId=node.id,
+                                                     scriptId=node.script.id)
+                         for d in jobDocs]),
+                        resultsMerge.si(jobId=jobId, stepId=node.id)))  # used to terminate with chordfinisher.s()
+                elif node.script.type == PythonScript.RUN_ON_JOB:
+                    celery_jobs.append(
+                        applyPythonScriptToJob.s(jobId=jobId, nodeId=node.id, scriptId=node.script.id))
+                else:
+                    raise PipelineError(message="{0} - {1}".format(JOB_FAILED_DID_NOT_FINISH,
+                                                 "Unrecognized script type: {0}".format(node.script.type)))
 
-            # add last step which will shut down the job when the tasks complete
-            celery_jobs.append(packageJobResults.s(jobId=jobId))
-            celery_jobs.append(stopPipeline.s(jobId=jobId))
+        # add last step which will shut down the job when the tasks complete
+        celery_jobs.append(packageJobResults.s(jobId=jobId))
+        celery_jobs.append(stopPipeline.s(jobId=jobId))
 
-            print("Final pipeline jobs list:")
-            print(str(celery_jobs))
+        temp_out.write("Final pipeline jobs list:")
+        temp_out.write(str(celery_jobs))
 
-            print("\nStarting task chain...")
-            data = chain(celery_jobs).apply_async()
+        temp_out.write("Starting task chain...")
+        data = chain(celery_jobs).apply_async()
 
-            print("\nFinished task chain...")
-            returnMessage = data
+        temp_out.write("Finished task chain...")
+        jobLogger.info(temp_out.getvalue())
 
-        except Exception as e:
+        return data
 
-            returnMessage = "{0} - Error on Run Job #{1}: {2}".format(JOB_FAILED_DID_NOT_FINISH, jobId, e)
-            stopJob(jobId=jobId, status=returnMessage, error=True)
-            traceback.print_exc(file=temp_out)
+    except Exception as e:
 
-    print("Return message:")
-    print(returnMessage)
+        returnMessage = "{0} - Error on Run Job #{1}: {2}".format(JOB_FAILED_DID_NOT_FINISH, jobId, e)
+        stopJob(jobId=jobId, status=returnMessage, error=True)
+        traceback.print_exc(file=temp_out)
+        jobLogger.error(returnMessage)
+        jobLogger.info(temp_out.getvalue())
+        return returnMessage
 
-    sys.stdout = sys.__stdout__
-    jobLogger.info(temp_out.getvalue())
-
-    return returnMessage
 
 # shutdown the job
 @celery_app.task(base=FaultTolerantTask, name="Stop Current Pipeline")
