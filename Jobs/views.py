@@ -828,6 +828,27 @@ class PipelineViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated & WriteOnlyIfIsAdminOrEng]
 
     # Clears any existing test jobs and creates a new one.
+    # Clears any existing test jobs and creates a new one.
+    @action(methods=['get'], detail=True)
+    def get_test_job(self, request, pk=None):
+
+        # try:
+        test_jobs = Job.objects.filter(type='TEST')
+        if test_jobs:
+            for job in test_jobs:
+                job.delete()
+
+        pipeline = Pipeline.objects.get(id=pk)
+        test_job = Job.objects.create(
+            name="TEST JOB",
+            type="TEST",
+            creation_time=datetime.now(),
+            pipeline=pipeline
+        )
+
+        serializer = JobSerializer(test_job, many=False)
+        return Response(serializer.data)
+
     @action(methods=['post'], detail=False)
     def delete_multiple(self, request):
 

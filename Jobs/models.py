@@ -1,6 +1,5 @@
 import logging, os, operator
 from django.db import models
-from django.contrib.postgres.fields import JSONField
 from django import utils
 from django.contrib.auth import get_user_model
 from django.db.models import TextField
@@ -223,6 +222,20 @@ class Job(models.Model):
             return 0
 
 
+def digraph_jsonfield_default_value():  # This is a callable
+    return {
+        "offset": {
+            "x": 0,
+            "y": 0,
+        },
+        "type": ["PIPELINE"],
+        "scale": 1,
+        "selected": {},
+        "hovered": {},
+        "nodes": [],
+        "links": []
+    }
+
 class Pipeline(models.Model):
 
     name = models.CharField("Pipeline Name", max_length=512, default="Line Name", blank=False)
@@ -245,6 +258,7 @@ class Pipeline(models.Model):
     scale = models.FloatField("View Scale Factor", blank=False, default=1.0)
     x_offset = models.IntegerField("X Offset", blank=False, default=0)
     y_offset = models.IntegerField("Y Offset", blank=False, default=0)
+    digraph = models.JSONField(default=digraph_jsonfield_default_value)
 
     def __str__(self):
         return self.name
