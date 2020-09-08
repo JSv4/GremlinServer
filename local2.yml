@@ -11,7 +11,6 @@ services:
     build:
       context: .
       dockerfile: ./compose/local/django/Dockerfile
-    image: django
     container_name: django
     depends_on:
       - postgres
@@ -43,23 +42,25 @@ services:
     container_name: redis
 
   gremlinworker:
-    <<: *django
-    image: django
+    build:
+      context: .
+      dockerfile: ./compose/local/django/Dockerfile
     container_name: gremlinworker
     depends_on:
       - redis
       - postgres
     volumes:
+      - .:/app
       - worker_usr_data:/usr/local
       - worker_tmp:/tmp
-      - .:/app
-
+    env_file:
+      - ./.envs/.local/.django
+      - ./.envs/.local/.postgres
     ports: []
     command: /start-celeryworker
 
   celerybeat:
     <<: *django
-    image: django
     container_name: celerybeat
     depends_on:
       - redis
@@ -70,7 +71,6 @@ services:
 
   flower:
     <<: *django
-    image: django
     container_name: flower
     ports:
       - "5555:5555"

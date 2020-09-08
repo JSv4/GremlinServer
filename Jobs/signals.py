@@ -5,7 +5,7 @@ from django.db import transaction
 
 from .tasks.task_helpers import buildNodePipelineRecursively
 from .tasks.tasks import runJob, installPackages, runPythonScriptSetup, extractTextForDoc, \
-    runScriptEnvVarIntaller, runScriptPackageInstaller, runScriptSetupScript
+    runScriptEnvVarIntaller, runScriptPackageInstaller, runScriptSetupScript, recalculatePipelineDigraph
 from .models import PipelineNode, Pipeline, PythonScript, Edge
 
 # Excellent django logging guidance here: https://docs.python.org/3/howto/logging-cookbook.html
@@ -32,6 +32,7 @@ def process_doc_on_create_atomic(sender, instance, created, **kwargs):
 # this on the backend in response to changes could lead to data getting out of sync... Can trying to remedy this later
 # if it becomes an issue.
 def update_pipeline_schema(sender, instance, **kwargs):
+
     print(f"Got signal to update pipeline schema for sender type {sender} and instance ID #{instance.id}. "
                 f"kwargs are {kwargs}")
     try:
@@ -186,3 +187,10 @@ def update_python_script_on_save(sender, instance, **kwargs):
             if not instance.env_variables == "":
                 runScriptEnvVarIntaller.delay(scriptId = instance.id)
 
+
+# When a digraph edge is updated... rerender the digraph property... which is a react flowchart compatible JSON structure
+# That shows the digraph structure of the job... everything is keyed off of it.
+# TODO - what happens if you try to edit multiple nodes at the same time?
+#  Or you have this operation pending while editing an edge... need to think about how to handle this.
+def update_digraph_on_edge_change(sender, instance, **kwargs):
+    recalculatePipelineDigraph.delay(pipelineId=instance.pk)

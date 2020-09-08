@@ -13,7 +13,7 @@ from django.core.files.base import ContentFile
 from django.db import connection
 
 from config import celery_app
-from ..models import Job, Document, PipelineNode, Result, PythonScript
+from ..models import Job, Document, PipelineNode, Result, PythonScript, Edge, Pipeline
 from celery import chain, group, chord
 from celery.signals import celeryd_after_setup
 from .task_helpers import exec_with_return, returnScriptMethod, buildScriptInput, \
@@ -333,6 +333,125 @@ def runScriptEnvVarIntaller(*args, scriptId=-1, **kwargs):
                       f"Error: \n{e}")
 
 
+# Rather than tie up the main Django thread calculating a digraph,move it to a separate tasks that can be called
+# from the on_save signal for the pipeline or the
+@celery_app.task(base=FaultTolerantTask, name="Calculate digraph")
+def recalculatePipelineDigraph(*args, pipelineId=-1, **kwargs):
+
+    print("Recalculate Pipeline Digraph")
+
+    try:
+        nodes = PipelineNode.objects.prefetch_related('out_edges', 'in_edges').filter(parent_pipeline__id=pipelineId)
+        edges = Edge.objects.filter(parent_pipeline__id=pipelineId)
+        pipeline = Pipeline.objects.get(pk=pipelineId)
+
+        digraph = {
+            "offset": {
+                "x": pipeline.x_offset,
+                "y": pipeline.y_offset,
+            },
+            "type": ["PIPELINE"],
+            "scale": pipeline.scale,
+            "selected": {},
+            "hovered": {},
+        }
+        renderedNodes = {}
+        renderedEdges = {}
+
+        for node in nodes:
+
+            ports = {}
+
+            if node.type == PipelineNode.SCRIPT:
+                ports = {
+                    "output": {
+                        "id": 'output',
+                        "type": 'output',
+                    },
+                    "input": {
+                        "id": 'input',
+                        "type": 'input',
+                    },
+                }
+            elif node.type == PipelineNode.ROOT_NODE:
+                ports = {
+                    "output": {
+                        "id": 'output',
+                        "type": 'output',
+                    },
+                }
+            # TODO - handle more node types
+
+            print("Try to render node")
+            print(f"Node: {node}")
+            renderedNode = {
+                "id": f"{node.id}",
+                "name": node.name,
+                "settings": node.step_settings,
+                "input_transform": node.input_transform,
+                "type": node.type,
+                "position": {
+                    "x": node.x_coord,
+                    "y": node.y_coord
+                },
+                "ports": ports
+            }
+            print(renderedNode)
+
+            # Only need to handle instances where script is null (e.g. where the node is a root node and there's
+            # no linked script because it's hard coded on the backend
+            if node.type == "ROOT_NODE":
+                # If the default pre-processor has been overwritten... use linked script details
+                if node.script == None:
+                    renderedNode["script"] = {
+                        "id": -1,
+                        "human_name": "Pre Processor",
+                        "type": "RUN_ON_JOB_DOCS",
+                        "supported_file_types": "",
+                        "description": "Default pre-processor to ensure docx, doc and pdf files are extracted."
+                    }
+                # otherwise... provide default values
+                else:
+                    renderedNode["script"] = {
+                        "id": node.script.id,
+                        "human_name": node.script.human_name,
+                        "type": node.script.type,
+                        "supported_file_types": node.script.supported_file_types,
+                        "description": node.script.description
+                    }
+            else:
+                renderedNode["script"] = {}
+
+            renderedNodes[f"{node.id}"] = renderedNode
+
+        for edge in edges:
+            renderedEdges[f"{edge.id}"] = {
+                "id": f"{edge.id}",
+                "from": {
+                    "nodeId": f"{edge.start_node.id}",
+                    "portId": "output"
+                },
+                "to": {
+                    "nodeId": f"{edge.end_node.id}",
+                    "portId": "input"
+                }
+            }
+
+        digraph['nodes'] = renderedNodes
+        digraph['links'] = renderedEdges
+
+        print("Digraph is: ")
+        print(digraph)
+
+        pipeline.digraph=digraph
+        pipeline.save()
+
+        return JOB_SUCCESS
+
+    except Exception as e:
+        returnMessage = "{0} - Error rendering digraph for pipeline ID #{1}: {2}".format(JOB_FAILED_DID_NOT_FINISH, pipelineId, e)
+        return returnMessage
+
 @celery_app.task(base=FaultTolerantTask, name="Run Job")
 def runJob(*args, jobId=-1, endStep=-1, **kwargs):
 
@@ -432,7 +551,6 @@ def runJob(*args, jobId=-1, endStep=-1, **kwargs):
         jobLogger.error(returnMessage)
         jobLogger.info(temp_out.getvalue())
         return returnMessage
-
 
 # shutdown the job
 @celery_app.task(base=FaultTolerantTask, name="Stop Current Pipeline")

@@ -246,12 +246,13 @@ class Full_PipelineSerializer(serializers.ModelSerializer):
     owner = serializers.ReadOnlyField(source='owner.username')
     pipelinenodes = Full_PipelineStepSerializer(many=True, read_only=True)
     root_node = Full_PipelineStepSerializer(many=False, read_only=True, required=False)
+    digraph = serializers.JSONField(required=False)
 
     class Meta:
         model = Pipeline
         fields = ['id', 'name', 'schema', 'description', 'total_steps', 'owner', 'production',
-                  'supported_files', 'pipelinenodes', 'root_node', 'scale', 'x_offset', 'y_offset']
-        read_only_fields = ['id', 'schema', 'total_steps', 'owner', 'root_node']
+                  'supported_files', 'pipelinenodes', 'root_node', 'scale', 'x_offset', 'y_offset', 'digraph']
+        read_only_fields = ['id', 'schema', 'total_steps', 'owner', 'root_node', 'digraph']
 
 
 class ResultSummarySerializer(serializers.ModelSerializer):
