@@ -13,6 +13,7 @@ from django.core.files.base import ContentFile
 from django.db import connection
 
 from config import celery_app
+from ..serializers import PythonScriptSummarySerializer
 from ..models import Job, Document, PipelineNode, Result, PythonScript, Edge, Pipeline
 from celery import chain, group, chord
 from celery.signals import celeryd_after_setup
@@ -396,7 +397,6 @@ def recalculatePipelineDigraph(*args, pipelineId=-1, **kwargs):
                 },
                 "ports": ports
             }
-            print(renderedNode)
 
             # Only need to handle instances where script is null (e.g. where the node is a root node and there's
             # no linked script because it's hard coded on the backend
@@ -420,7 +420,12 @@ def recalculatePipelineDigraph(*args, pipelineId=-1, **kwargs):
                         "description": node.script.description
                     }
             else:
-                renderedNode["script"] = {}
+                if node.script is None:
+                    renderedNode["script"] = None
+                else:
+                    script = node.script
+                    serializer = PythonScriptSummarySerializer(script, many=False)
+                    renderedNode["script"] = serializer.data
 
             renderedNodes[f"{node.id}"] = renderedNode
 
@@ -744,6 +749,7 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, nodeId=-1, scriptId=-1,
                 "./step_results/{0}/{1}/{2}-{3}.{4}".format(jobId, nodeId, doc.id, name, file_ext),
                 file_data)
 
+        result.finished = True
         result.output_data = json.dumps(data)
         result.stop_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
         result.save()
@@ -758,6 +764,9 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, nodeId=-1, scriptId=-1,
             return JOB_SUCCESS
 
         else:
+            result.error = True
+            result.save()
+
             raise UserScriptError(message="User script returned Finished=False. Node in error state.")
 
 
@@ -937,6 +946,7 @@ def applyPythonScriptToJob(*args, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
 
         result.output_data = json.dumps(data, indent=4)
         result.stop_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
+        result.finished=True
         result.save()
 
         if finished:
@@ -949,6 +959,8 @@ def applyPythonScriptToJob(*args, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
             return JOB_SUCCESS
 
         else:
+            result.error=True
+            result.save()
             raise UserScriptError(message="User script returned Finished=False. Node in error state.")
 
     except Exception as e:

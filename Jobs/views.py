@@ -371,118 +371,127 @@ class JobViewSet(viewsets.ModelViewSet):
     def render_results_digraph(self, request, pk=None):
 
         try:
-            job = Job.objects.prefetch_related('pipeline','result_set', 'document_set').get(pk=pk)
-            pipeline = job.pipeline
-            nodes = PipelineNode.objects.prefetch_related('out_edges', 'in_edges').filter(parent_pipeline=pipeline)
-            edges = Edge.objects.filter(parent_pipeline=pipeline)
-            results = job.result_set
-
-            digraph = {
-                "offset": {
-                    "x": 0,
-                    "y": 0,
-                },
-                "type": ["RESULTS"],
-                "scale": 1,
-                "selected": {},
-                "hovered": {},
-            }
-            renderedNodes = {}
-            renderedEdges = {}
-
-            for node in nodes:
-
-                node_result = results.filter(pipeline_node=node)
-                print(f"Node result for node {node} is {node_result}")
-
-                ports = {}
-
-                if node.type==PipelineNode.SCRIPT:
-                    ports = {
-                        "output": {
-                            "id": 'output',
-                            "type": 'output',
-                        },
-                        "input": {
-                            "id": 'input',
-                            "type": 'input',
-                        },
-                    }
-                elif node.type==PipelineNode.ROOT_NODE:
-                    ports = {
-                        "output": {
-                            "id": 'output',
-                            "type": 'output',
-                        },
-                    }
-                # TODO - handle more node types
-
-                print("Try to render node")
-                print(f"Node: {node}")
-                renderedNode = {
-                    "id": f"{node.id}",
-                    "name": node.name,
-                    "settings": node.step_settings,
-                    "result": None if not node_result.count()==1 else node_result[0].id,
-                    "input_transform":node.input_transform,
-                    "job_id": job.id,
-                    "type": node.type,
-                    "position": {
-                        "x": node.x_coord,
-                        "y": node.y_coord
-                    },
-                    "ports": ports
-                }
-                print(renderedNode)
-
-                # Put in result id
-                if node.script is None:
-                    renderedNode["script"] = None
-                else:
-                    renderedNode["script"] = node.script_id
-
-
-                # Only need to handle instances where script is null (e.g. where the node is a root node and there's
-                # no linked script because it's hard coded on the backend
-                if node.type=="ROOT_NODE":
-
-                    # Provide default values where there is no script
-                    if node.script is None:
-                        renderedNode["script"] = -1
-                    # If the default pre-processor has been overwritten... use linked script details
-                    else:
-                        renderedNode["script"] = node.script__id
-                elif node.type=="THROUGH_SCRIPT":
-                    if node.script is None:
-                        renderedNode["script"] = None
-                    else:
-                        renderedNode["script"] = node.script_id
-                else:
-                    renderedNode["script"] = {}
-
-                renderedNodes[f"{node.id}"] = renderedNode
-
-            for edge in edges:
-                 renderedEdges[f"{edge.id}"] = {
-                     "id": f"{edge.id}",
-                     "from": {
-                         "nodeId": f"{edge.start_node_id}",
-                         "portId": "output"
-                     },
-                     "to": {
-                         "nodeId": f"{edge.end_node_id}",
-                         "portId": "input"
-                     }
-                 }
-
-            digraph['nodes'] = renderedNodes
-            digraph['links'] = renderedEdges
-
-            return JsonResponse(digraph)
+            print(f"Returning job ID {pk} pipeline's digraph")
+            pipeline = Job.objects.get(pk=pk).pipeline
+            return JsonResponse(pipeline.digraph)
 
         except Exception as e:
             return Response(e,
-                        status=status.HTTP_400_BAD_REQUEST)
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        # try:
+        #     job = Job.objects.prefetch_related('pipeline','result_set', 'document_set').get(pk=pk)
+        #     pipeline = job.pipeline
+        #     nodes = PipelineNode.objects.prefetch_related('out_edges', 'in_edges').filter(parent_pipeline=pipeline)
+        #     edges = Edge.objects.filter(parent_pipeline=pipeline)
+        #     results = job.result_set
+        #
+        #     digraph = {
+        #         "offset": {
+        #             "x": 0,
+        #             "y": 0,
+        #         },
+        #         "type": ["RESULTS"],
+        #         "scale": 1,
+        #         "selected": {},
+        #         "hovered": {},
+        #     }
+        #     renderedNodes = {}
+        #     renderedEdges = {}
+        #
+        #     for node in nodes:
+        #
+        #         node_result = results.filter(pipeline_node=node)
+        #         print(f"Node result for node {node} is {node_result}")
+        #
+        #         ports = {}
+        #
+        #         if node.type==PipelineNode.SCRIPT:
+        #             ports = {
+        #                 "output": {
+        #                     "id": 'output',
+        #                     "type": 'output',
+        #                 },
+        #                 "input": {
+        #                     "id": 'input',
+        #                     "type": 'input',
+        #                 },
+        #             }
+        #         elif node.type==PipelineNode.ROOT_NODE:
+        #             ports = {
+        #                 "output": {
+        #                     "id": 'output',
+        #                     "type": 'output',
+        #                 },
+        #             }
+        #         # TODO - handle more node types
+        #
+        #         print("Try to render node")
+        #         print(f"Node: {node}")
+        #         renderedNode = {
+        #             "id": f"{node.id}",
+        #             "name": node.name,
+        #             "settings": node.step_settings,
+        #             "result": None if not node_result.count()==1 else node_result[0].id,
+        #             "input_transform":node.input_transform,
+        #             "job_id": job.id,
+        #             "type": node.type,
+        #             "position": {
+        #                 "x": node.x_coord,
+        #                 "y": node.y_coord
+        #             },
+        #             "ports": ports
+        #         }
+        #         print(renderedNode)
+        #
+        #         # Put in result id
+        #         if node.script is None:
+        #             renderedNode["script"] = None
+        #         else:
+        #             renderedNode["script"] = node.script_id
+        #
+        #
+        #         # Only need to handle instances where script is null (e.g. where the node is a root node and there's
+        #         # no linked script because it's hard coded on the backend
+        #         if node.type=="ROOT_NODE":
+        #
+        #             # Provide default values where there is no script
+        #             if node.script is None:
+        #                 renderedNode["script"] = -1
+        #             # If the default pre-processor has been overwritten... use linked script details
+        #             else:
+        #                 renderedNode["script"] = node.script__id
+        #         elif node.type=="THROUGH_SCRIPT":
+        #             if node.script is None:
+        #                 renderedNode["script"] = None
+        #             else:
+        #                 renderedNode["script"] = node.script_id
+        #         else:
+        #             renderedNode["script"] = {}
+        #
+        #         renderedNodes[f"{node.id}"] = renderedNode
+        #
+        #     for edge in edges:
+        #          renderedEdges[f"{edge.id}"] = {
+        #              "id": f"{edge.id}",
+        #              "from": {
+        #                  "nodeId": f"{edge.start_node_id}",
+        #                  "portId": "output"
+        #              },
+        #              "to": {
+        #                  "nodeId": f"{edge.end_node_id}",
+        #                  "portId": "input"
+        #              }
+        #          }
+        #
+        #     digraph['nodes'] = renderedNodes
+        #     digraph['links'] = renderedEdges
+        #
+        #     return JsonResponse(digraph)
+        #
+        # except Exception as e:
+        #     return Response(e,
+        #                 status=status.HTTP_400_BAD_REQUEST)
 
 
 class FileResultsViewSet(viewsets.ModelViewSet):
@@ -496,7 +505,7 @@ class FileResultsViewSet(viewsets.ModelViewSet):
 
 class ResultsViewSet(viewsets.ModelViewSet):
     queryset = Result.objects.select_related('owner', 'job', 'pipeline_node', 'doc').all().order_by('-job__id')
-    filter_fields = ['id', 'job__id', 'start_time', 'stop_time']
+    filter_fields = ['id', 'job__id', 'start_time', 'stop_time', 'pipeline_node__id']
 
     pagination_class = LargeResultsSetPagination
     serializer_class = ResultSummarySerializer

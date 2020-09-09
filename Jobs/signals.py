@@ -163,29 +163,28 @@ def update_python_script_on_save(sender, instance, **kwargs):
     try:
         obj = sender.objects.get(pk=instance.pk)
 
-    except sender.DoesNotExist:
-        pass
-
-    else:
         # Required package field has changed, try to install new packages.
         if not obj.required_packages == instance.required_packages:
             print("Python script updated... running install script.")
 
             # if there is a list of required packages, add a job to install them
             if not instance.required_packages == "":
-                runScriptPackageInstaller.delay(scriptId = instance.id)
+                runScriptPackageInstaller.delay(scriptId=instance.id)
 
         if not obj.setup_script == instance.setup_script:
             print("Install script updated... running install script.")
 
             if not instance.setup_script == "":
-                runPythonScriptSetup.delay(scriptId = instance.id)
+                runPythonScriptSetup.delay(scriptId=instance.id)
 
         if not obj.env_variables == instance.env_variables:
             print("Env variables updated... ")
 
             if not instance.env_variables == "":
-                runScriptEnvVarIntaller.delay(scriptId = instance.id)
+                runScriptEnvVarIntaller.delay(scriptId=instance.id)
+
+    except sender.DoesNotExist:
+        pass
 
 
 # When a digraph edge is updated... rerender the digraph property... which is a react flowchart compatible JSON structure
@@ -193,4 +192,47 @@ def update_python_script_on_save(sender, instance, **kwargs):
 # TODO - what happens if you try to edit multiple nodes at the same time?
 #  Or you have this operation pending while editing an edge... need to think about how to handle this.
 def update_digraph_on_edge_change(sender, instance, **kwargs):
-    recalculatePipelineDigraph.delay(pipelineId=instance.pk)
+    recalculatePipelineDigraph.delay(pipelineId=instance.parent_pipeline.id) #TODO - make sure
+
+
+# When a node is created... rerender the parent_pipeline digraph property... e
+# That shows the digraph structure of the job... everything is keyed off of it.
+def update_digraph_on_node_create(sender, instance, created, **kwargs):
+    if created:
+        print("Node was created... try to update parent_pipeline digraph")
+        recalculatePipelineDigraph.delay(pipelineId=instance.parent_pipeline.id)
+
+
+# When a node is deleted... rerender the parent_pipeline digraph property... e
+# That shows the digraph structure of the job... everything is keyed off of it.
+def update_digraph_on_node_delete(sender, instance, **kwargs):
+    print("Node was deleted... try to update parent_pipeline digraph")
+    recalculatePipelineDigraph.delay(pipelineId=instance.parent_pipeline.id)
+
+# When digraph node *position* is updated, inject the new coordinates into the digraph.
+# Run synchronously as this should be pretty fast and we don't want race condition occuring where user updates position
+# requests new position and then DRF fetches pre-updated version and returns out of date position
+# When a python script is updated... save the updated code and, if necessary, run the installer.
+def update_digraph_position_on_node_change(sender, instance, **kwargs):
+
+    print("Check changes to digraph node positions...")
+
+    try:
+        obj = sender.objects.get(pk=instance.pk)
+
+        # Required package field has changed, try to install new packages.
+        if not obj.x_coord == instance.x_coord or not obj.y_coord == obj.y_coord:
+
+            print(f"Node ID #{obj.pk} has been moved! Updating digraph.")
+
+            pipeline = obj.parent_pipeline
+            digraph = {**pipeline.digraph}
+            digraph['nodes'][f'{obj.pk}']['position']['x'] = obj.x_coord
+            digraph['nodes'][f'{obj.pk}']['position']['y'] = obj.y_coord
+            pipeline.digraph = digraph
+            pipeline.save()
+
+            print("Digraph updated with new positions...")
+
+    except sender.DoesNotExist:
+        pass

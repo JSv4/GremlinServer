@@ -268,9 +268,11 @@ class ResultSummarySerializer(serializers.ModelSerializer):
         model = Result
 
         fields = ['id', 'name', 'job', 'doc', 'pipeline_node',
-                  'start_time', 'stop_time', 'file', 'type', 'owner']
+                  'start_time', 'stop_time', 'file', 'type', 'owner',
+                  'started', 'error', 'finished']
         read_only_fields = ['id', 'name', 'job', 'doc', 'pipeline_node',
-                  'start_time', 'stop_time', 'file', 'type', 'owner']
+                  'start_time', 'stop_time', 'file', 'type', 'owner',
+                  'started', 'error', 'finished']
 
 class ResultSerializer(serializers.ModelSerializer):
 
