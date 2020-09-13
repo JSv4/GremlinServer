@@ -263,16 +263,17 @@ class ResultSummarySerializer(serializers.ModelSerializer):
     job = serializers.PrimaryKeyRelatedField(many=False, queryset=Job.objects.all())
     pipeline_node = serializers.PrimaryKeyRelatedField(many=False, queryset= PipelineNode.objects.all())
     doc = serializers.PrimaryKeyRelatedField(many=False, queryset=Document.objects.all())
+    script_id = serializers.ReadOnlyField()
 
     class Meta:
         model = Result
 
         fields = ['id', 'name', 'job', 'doc', 'pipeline_node',
                   'start_time', 'stop_time', 'file', 'type', 'owner',
-                  'started', 'error', 'finished']
+                  'started', 'error', 'finished', 'script_id']
         read_only_fields = ['id', 'name', 'job', 'doc', 'pipeline_node',
                   'start_time', 'stop_time', 'file', 'type', 'owner',
-                  'started', 'error', 'finished']
+                  'started', 'error', 'finished', 'script_id']
 
 class ResultSerializer(serializers.ModelSerializer):
 
@@ -282,15 +283,18 @@ class ResultSerializer(serializers.ModelSerializer):
     job = serializers.PrimaryKeyRelatedField(many=False, queryset=Job.objects.all())
     doc = serializers.PrimaryKeyRelatedField(many=False, queryset=Document.objects.all())
     pipeline_node = serializers.PrimaryKeyRelatedField(many=False, queryset=PipelineNode.objects.all())
+    script_id = serializers.ReadOnlyField()
 
     class Meta:
         model = Result
 
         fields = ['id', 'name', 'job', 'doc', 'pipeline_node', 'start_time', 'stop_time', 'file', 'has_file', 'type',
-                  'owner',  'output_data', 'transformed_input_data', 'raw_input_data']
+                  'owner',  'output_data', 'transformed_input_data', 'raw_input_data',
+                  'started', 'error', 'finished', 'script_id']
 
         read_only_fields = ['id', 'name', 'job', 'doc', 'pipeline_node', 'start_time', 'stop_time', 'has_file', 'file',
-                            'type', 'owner', 'output_data', 'transformed_input_data', 'raw_input_data']
+                            'type', 'owner', 'output_data', 'transformed_input_data', 'raw_input_data',
+                            'started', 'error', 'finished', 'script_id']
 
 class LogSerializer(serializers.ModelSerializer):
 

@@ -474,3 +474,7 @@ class Result(models.Model):
             return "Job {0} Step {0} Result".format(self.job.name, self.pipeline_node.name)
         else:
             return "Job {0} Result".format(self.job.name)
+
+    @property
+    def script_id(self):
+        return self.pipeline_node.script.id

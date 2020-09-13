@@ -503,6 +503,7 @@ def runJob(*args, jobId=-1, endStep=-1, **kwargs):
 
         # Build the celery job pipeline (Note there may be some inefficiencies in how this is constructed)
         # Will fix in future release.
+        logger.info("Build celery instructions")
         for node in pipeline_nodes:
 
             # Start with a job to ensure all of the documents are extracted
@@ -513,19 +514,22 @@ def runJob(*args, jobId=-1, endStep=-1, **kwargs):
             # return values.
             # See more here: https://stackoverflow.com/questions/15123772/celery-chaining-groups-and-subtasks-out-of-order-execution
             if node.type == "ROOT_NODE":
-                celery_jobs.append(chord(group(
-                    [extractTextForDoc.s(docId=d.id) for d in jobDocs]),
-                    chordfinisher.s()))
+                logger.info("Build root node celery instructions")
+                celery_jobs.append(createSharedResultForParallelExecution.si(jobId=jobId, stepId=node.id))
+                celery_jobs.append(chord(
+                    group([extractTextForDoc.s(docId=d.id) for d in jobDocs]),
+                    resultsMerge.si(jobId=jobId, stepId=node.id)))
 
             # TODO - handle packaging step separately similar to the root_node above
             # For through jobs...
             elif node.type == "THROUGH_SCRIPT":
                 if node.script.type == PythonScript.RUN_ON_JOB_ALL_DOCS_PARALLEL:
-                    celery_jobs.append(chord(group(
-                        [applyPythonScriptToJobDoc.s(docId=d.id, jobId=jobId, nodeId=node.id,
+                    celery_jobs.append(createSharedResultForParallelExecution.si(jobId=jobId, stepId=node.id))
+                    celery_jobs.append(chord(
+                        group([applyPythonScriptToJobDoc.s(docId=d.id, jobId=jobId, nodeId=node.id,
                                                      scriptId=node.script.id)
                          for d in jobDocs]),
-                        resultsMerge.si(jobId=jobId, stepId=node.id)))  # used to terminate with chordfinisher.s()
+                        resultsMerge.si(jobId=jobId, stepId=node.id)))
                 elif node.script.type == PythonScript.RUN_ON_JOB:
                     celery_jobs.append(
                         applyPythonScriptToJob.s(jobId=jobId, nodeId=node.id, scriptId=node.script.id))
@@ -537,13 +541,13 @@ def runJob(*args, jobId=-1, endStep=-1, **kwargs):
         celery_jobs.append(packageJobResults.s(jobId=jobId))
         celery_jobs.append(stopPipeline.s(jobId=jobId))
 
-        temp_out.write("Final pipeline jobs list:")
-        temp_out.write(str(celery_jobs))
+        logger.info("Final pipeline jobs list:")
+        logger.info(str(celery_jobs))
 
-        temp_out.write("Starting task chain...")
+        logger.info("Starting task chain...")
         data = chain(celery_jobs).apply_async()
 
-        temp_out.write("Finished task chain...")
+        logger.info("Finished task chain...")
         jobLogger.info(temp_out.getvalue())
 
         return data
@@ -992,52 +996,90 @@ def applyPythonScriptToJob(*args, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
 # https://stackoverflow.com/questions/15123772/celery-chaining-groups-and-subtasks-out-of-order-execution
 @celery_app.task(base=FaultTolerantTask)
 def chordfinisher(previousMessage, *args, **kwargs):
+
     return previousMessage
 
+# Tee up a parallel step by creating step result with proper start time... otherwise we'll lose
+@celery_app.task(base=FaultTolerantTask)
+def createSharedResultForParallelExecution(*args, jobId=-1, stepId=-1, **kwargs):
 
-# for now, does nothing other than echo args...
-# the intent will be to package up all of the individual results data objs for a given step
+    logger.info("createSharedResultForParallelExecution - jobId {0} and stepId {1}".format(jobId, stepId))
+
+    try:
+
+        logger.info("Creating result...")
+
+        job = Job.objects.get(id=jobId)
+        logger.info("Job object {0}".format(job))
+        step = PipelineNode.objects.get(id=stepId)
+        logger.info("Step object: {0}".format(step))
+
+        logger.info("Create step_result")
+
+        # Currently the root node script is null and root nodes just trigger a built-in celery job...
+        # I need to update the system so it creates a default root node type *object* in the DB and treats
+        # root nodes more like other node types... eventually.
+        if step.type == PipelineNode.ROOT_NODE:
+            name = "Pipeline: {0} | Step #{1}".format(job.pipeline.name, "BUILT-IN"),
+        else:
+            name = "Pipeline: {0} | Step #{1}".format(job.pipeline.name, step.script.name),
+
+        step_result = Result.objects.create(
+            name=name,
+            job=job,
+            pipeline_node=step,
+            type='STEP',
+            start_time=datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ"),
+            stop_time=None,
+            started=True,
+            finished=False,
+            error=False
+        )
+        step_result.save()
+
+        logger.info("Created result for parallel execution step: ")
+        print(step_result)
+
+        return JOB_SUCCESS
+
+    except Exception as e:
+        return "{0} - Error trying to start parallel step. Perhaps specified job or pipeline is wrong? This shouldn't " \
+               "ever happen (comforting, right?). Exception is: {1}".format(JOB_FAILED_DID_NOT_FINISH, e)
+
+# Package up all of the individual results data objs for a given step
 # and pass them along to the next step
 @celery_app.task(base=FaultTolerantTask)
 def resultsMerge(*args, jobId=-1, stepId=-1, **kwargs):
+
+    logger.info("Results merge for stepId {0} of jobId {1}".format(stepId, jobId))
 
     # Get loggers
     jobLogger = JobLogger(jobId=jobId, name="resultsMerge")
     mergeLog = StringIO() #Memory object to hold job logs for job-level commands (will redirect print statements)
 
     # Setup control variables
-    started = True
-    finished = False
     error = False
 
     # Default return message code
     returnMessage = JOB_FAILED_DID_NOT_FINISH
 
-    mergeLog.write("######### Results Merge At End of Parallel Step:")
+    logger.info("######### Results Merge At End of Parallel Step:")
 
     for arg in args:
         mergeLog.write(arg)
-
-    start_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
 
     job = Job.objects.get(id=jobId)
     step = PipelineNode.objects.get(id=stepId)
     results = Result.objects.filter(pipeline_node=step, job=job)
 
-    step_result = Result.objects.create(
-        name="Pipeline: {0} | Step #{1}".format(job.pipeline.name, step.script.name),
-        job=job,
-        pipeline_node=step,
-        type='STEP',
-        start_time=start_time,
-        stop_time=datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ"),
-        started=started,
-        finished=finished,
-        error=error
-    )
-    step_result.save()
+    # For parallel steps, the step result should have been created before the execution split in parallel workers, so
+    # fetch that earlier result to preserve original start time and store results of the parallel execution
+    logger.info("Try to fetch parallel step result created earlier:")
+    step_result = Result.objects.get(pipeline_node=step, job=job, type=Result.STEP)
+    logger.info("Step result retrieved from memory is: ")
+    logger.info(step_result)
 
-    mergeLog.write("Start results merger for {0} results.".format(str(len(results))))
+    logger.info("Start results merger for {0} results.".format(str(len(results))))
 
     input_settings = {}
     transformed_inputs = {}
@@ -1045,37 +1087,42 @@ def resultsMerge(*args, jobId=-1, stepId=-1, **kwargs):
     outputs = {}
 
     for result in results:
-        mergeLog.write(f"\nTry to package result for {result.name}")
-        try:
-            input_settings[f"{result.doc.id}"] = json.loads(result.input_settings)
-        except Exception as e:
-            mergeLog.write(f"\nError while trying to input settings for step {result.pipeline_node.step_number} and " \
-                   f"doc {result.doc.id}: {e}")
-            input_settings[f"{result.doc.id}"] = {}
+
+        logger.info(f"\nTry to package result for {result.name}")
 
         try:
-            transformed_inputs[f"{result.doc.id}"] = json.loads(result.input_data.transformed_input_data)
+            input_settings[f"{result.id}"] = json.loads(result.input_settings)
+        except Exception as e:
+            logger.info(f"\nError while trying to input settings for step {result.pipeline_node.step_number} and " \
+                   f"doc {result.id}: {e}")
+            input_settings[f"{result.id}"] = {}
+            error = True
+
+        try:
+            transformed_inputs[f"{result.id}"] = json.loads(result.transformed_input_data)
 
         except Exception as e:
 
             mergeLog(f"\nError while trying to merge transformed input data for step {result.pipeline_node.step_number} "
-                     f"and doc {result.doc.id}: {e}")
-            transformed_inputs[f"{result.doc.id}"] = {}
+                     f"and doc {result.id}: {e}")
+            transformed_inputs[f"{result.id}"] = {}
+            error = True
 
         try:
-            raw_inputs[f"{result.doc.id}"] = json.loads(result.input_data.raw_input_data)
+            raw_inputs[f"{result.id}"] = json.loads(result.input_data.raw_input_data)
 
         except Exception as e:
             mergeLog.write(f"\nWARNING - Error while trying to merge raw input data for step {result.pipeline_node.step_number} and " \
-                   f"doc {result.doc.id}: {e}")
-            raw_inputs[f"{result.doc.id}"] = {}
+                   f"doc {result.id}: {e}")
+            raw_inputs[f"{result.id}"] = {}
 
         try:
-            outputs[f"{result.doc.id}"] = json.loads(result.output_data.output_data)
+            outputs[f"{result.id}"] = json.loads(result.output_data.output_data)
         except Exception as e:
             mergeLog.write(f"WARNING - Error while trying to merge output data for step {result.pipeline_node.step_number} and " \
-                   f"doc {result.doc.id}: {e}")
-            outputs[f"{result.doc.id}"] = {}
+                   f"doc {result.id}: {e}")
+            outputs[f"{result.id}"] = {}
+            error = True
 
     mergeLog.write("\Step result created and saved.")
 
@@ -1087,8 +1134,7 @@ def resultsMerge(*args, jobId=-1, stepId=-1, **kwargs):
     step_result.raw_input_data=json.dumps(raw_inputs)
     step_result.transformed_input_data=json.dumps(transformed_inputs)
     step_result.output_data=json.dumps({"documents": outputs})
-    step_result.started = started
-    step_result.finished = finished
+    step_result.finished = True
     step_result.terror = error
     step_result.save()
 
