@@ -41,3 +41,7 @@ pandas>=0.25.0
 jsonschema>=3.2.0
 docutils==0.15.2
 docx2txt>=0.8
+
+# Script and Data File Formatting Tools
+pyaml>=5.3.1
+ruamel.yaml>=0.16.12
