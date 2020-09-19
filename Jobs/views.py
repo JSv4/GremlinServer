@@ -32,7 +32,7 @@ from .serializers import DocumentSerializer, JobSerializer, ResultSummarySeriali
     PipelineSerializer, PipelineStepSerializer, PythonScriptSummarySerializer, LogSerializer, ResultSerializer, \
     PythonScriptSummarySerializer, PipelineSerializer, PipelineStepSerializer, \
     ProjectSerializer, Full_PipelineSerializer, Full_PipelineStepSerializer, EdgeSerializer
-from .tasks.tasks import runJob, recalculatePipelineDigraph
+from .tasks.tasks import runJob, recalculatePipelineDigraph, runJobToNode
 
 mimetypes.init()
 mimetypes.knownfiles
@@ -277,12 +277,12 @@ class JobViewSet(viewsets.ModelViewSet):
     # This action will run a job up through a certain step of its pipeline
     # e.g. if we called .../Job/1/RunToStep/2 that would run the job 1 pipeline to step index 2 (#3)
     # if the provided step_number is out of range, the whole pipeline will run.
-    @action(methods=['get'], detail=True, url_name='RunToStep', url_path='RunToStep/(?P<step_number>[0-9]+)')
-    def runToStep(self, request, pk=None, step_number=None):
+    @action(methods=['get'], detail=True, url_name='RunToStep', url_path='RunToStep/(?P<endNodeId>[0-9]+)')
+    def runToStep(self, request, pk=None, endNodeId=None):
         try:
             print(pk)
-            print(step_number)
-            runJob.delay(jobId=pk, endStep=int(step_number))
+            print(endNodeId)
+            runJobToNode.delay(jobId=pk, endNodeId=int(endNodeId))
             return Response(status=status.HTTP_204_NO_CONTENT)
 
         except Exception as e:
@@ -379,120 +379,6 @@ class JobViewSet(viewsets.ModelViewSet):
             return Response(e,
                             status=status.HTTP_400_BAD_REQUEST)
 
-        # try:
-        #     job = Job.objects.prefetch_related('pipeline','result_set', 'document_set').get(pk=pk)
-        #     pipeline = job.pipeline
-        #     nodes = PipelineNode.objects.prefetch_related('out_edges', 'in_edges').filter(parent_pipeline=pipeline)
-        #     edges = Edge.objects.filter(parent_pipeline=pipeline)
-        #     results = job.result_set
-        #
-        #     digraph = {
-        #         "offset": {
-        #             "x": 0,
-        #             "y": 0,
-        #         },
-        #         "type": ["RESULTS"],
-        #         "scale": 1,
-        #         "selected": {},
-        #         "hovered": {},
-        #     }
-        #     renderedNodes = {}
-        #     renderedEdges = {}
-        #
-        #     for node in nodes:
-        #
-        #         node_result = results.filter(pipeline_node=node)
-        #         print(f"Node result for node {node} is {node_result}")
-        #
-        #         ports = {}
-        #
-        #         if node.type==PipelineNode.SCRIPT:
-        #             ports = {
-        #                 "output": {
-        #                     "id": 'output',
-        #                     "type": 'output',
-        #                 },
-        #                 "input": {
-        #                     "id": 'input',
-        #                     "type": 'input',
-        #                 },
-        #             }
-        #         elif node.type==PipelineNode.ROOT_NODE:
-        #             ports = {
-        #                 "output": {
-        #                     "id": 'output',
-        #                     "type": 'output',
-        #                 },
-        #             }
-        #         # TODO - handle more node types
-        #
-        #         print("Try to render node")
-        #         print(f"Node: {node}")
-        #         renderedNode = {
-        #             "id": f"{node.id}",
-        #             "name": node.name,
-        #             "settings": node.step_settings,
-        #             "result": None if not node_result.count()==1 else node_result[0].id,
-        #             "input_transform":node.input_transform,
-        #             "job_id": job.id,
-        #             "type": node.type,
-        #             "position": {
-        #                 "x": node.x_coord,
-        #                 "y": node.y_coord
-        #             },
-        #             "ports": ports
-        #         }
-        #         print(renderedNode)
-        #
-        #         # Put in result id
-        #         if node.script is None:
-        #             renderedNode["script"] = None
-        #         else:
-        #             renderedNode["script"] = node.script_id
-        #
-        #
-        #         # Only need to handle instances where script is null (e.g. where the node is a root node and there's
-        #         # no linked script because it's hard coded on the backend
-        #         if node.type=="ROOT_NODE":
-        #
-        #             # Provide default values where there is no script
-        #             if node.script is None:
-        #                 renderedNode["script"] = -1
-        #             # If the default pre-processor has been overwritten... use linked script details
-        #             else:
-        #                 renderedNode["script"] = node.script__id
-        #         elif node.type=="THROUGH_SCRIPT":
-        #             if node.script is None:
-        #                 renderedNode["script"] = None
-        #             else:
-        #                 renderedNode["script"] = node.script_id
-        #         else:
-        #             renderedNode["script"] = {}
-        #
-        #         renderedNodes[f"{node.id}"] = renderedNode
-        #
-        #     for edge in edges:
-        #          renderedEdges[f"{edge.id}"] = {
-        #              "id": f"{edge.id}",
-        #              "from": {
-        #                  "nodeId": f"{edge.start_node_id}",
-        #                  "portId": "output"
-        #              },
-        #              "to": {
-        #                  "nodeId": f"{edge.end_node_id}",
-        #                  "portId": "input"
-        #              }
-        #          }
-        #
-        #     digraph['nodes'] = renderedNodes
-        #     digraph['links'] = renderedEdges
-        #
-        #     return JsonResponse(digraph)
-        #
-        # except Exception as e:
-        #     return Response(e,
-        #                 status=status.HTTP_400_BAD_REQUEST)
-
 
 class FileResultsViewSet(viewsets.ModelViewSet):
     queryset = Result.objects.select_related('owner', 'job', 'pipeline_node', 'doc').exclude(
@@ -530,6 +416,30 @@ class ResultsViewSet(viewsets.ModelViewSet):
         response['Filename'] = os.path.basename(documentResult.file.name)
 
         return response
+
+    @action(methods=['put'], detail=True)
+    def test_transform_script(self, request, pk=None):
+
+        try:
+            result = Result.objects.get(pk=pk)
+
+            try:
+                input_data = json.loads(result.raw_input_data)
+            except:
+                input_data = {}
+
+            input_transform = request.data['input_transform']
+            return_data = {}
+
+            if input_transform:
+                return_data['output_data'] = transformStepInputs(input_transform, input_data)
+            else:
+                return_data['output_data'] = input_data
+
+            return JsonResponse(return_data)
+
+        except Exception as e:
+            return JsonResponse({"output_data": {}, "error": "ERROR: {0}".format(e)})
 
     @action(methods=['get'], detail=True)
     def get_full_obj(self, request, pk=None):

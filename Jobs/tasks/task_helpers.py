@@ -75,8 +75,39 @@ def addUniquesToArray(targetArray, addArray):
             targetArray.append(item)
     return targetArray
 
+#Given the node we want to stop with in a digraph, work backwards and build a sequential list of all of the nodes
+#That need to run in order to feed data to the target node (for pipeline builder)
+def buildPipelineToTargetNode(pipeline, targetNode):
+    nodes = []
 
-def buildNodePipelineRecursively(pipeline, node=None, ):
+
+def getPrecedingNodesForNode(pipeline, targetNode):
+
+    logger.info(f"Spinning up getPrecedingNodesForNode with pipeline {pipeline} and targetNode {targetNode}")
+
+    try:
+
+        nodes = []
+        in_edges = Edge.objects.filter(end_node=targetNode, parent_pipeline=pipeline).prefetch_related('start_node')
+
+        logger.info(f"In edges are {in_edges}")
+
+        if in_edges.count() > 0:
+            for e in in_edges:
+                logger.info(f"Get parents of node {e}")
+                nodes = [*getPrecedingNodesForNode(pipeline, e.start_node), *nodes]
+
+        nodes = [*nodes, targetNode]
+
+        logger.info(f"Resulting nodes are: {nodes}")
+
+        return nodes
+
+    except Exception as err:
+        logger.error(f"Error building nodes: {err}")
+        return []
+
+def buildNodePipelineRecursively(pipeline, node=None):
 
     print(f"buildNodePipelineRecursively for node {node} for pipeline {pipeline}")
 
