@@ -1,72 +1,14 @@
-import yaml
 import io
-import ast
-from codecs import encode, decode
+import json
+import logging
 from ruamel.yaml import YAML
 from ruamel.yaml.scalarstring import LiteralScalarString
 from pyaml import unicode
 from yaml.representer import SafeRepresenter
-from .models import PythonScript
+from .models import PythonScript, PipelineNode, Edge, Pipeline
 
-#######################################################################################################################
-##  YAML Formatters
-#######################################################################################################################
-
-# Heavily based on: https://stackoverflow.com/questions/6432605/any-yaml-libraries-in-python-that-support-dumping-of-long-strings-as-block-liter
-
-# class folded_str(str): pass
-# class literal_str(str): pass
-#
-# def change_style(style, representer):
-#     def new_representer(dumper, data):
-#         scalar = representer(dumper, data)
-#         scalar.style = style
-#         return scalar
-#     return new_representer
-
-
-# # represent_str does handle some corner cases, so use that
-# # instead of calling represent_scalar directly
-# represent_folded_str = change_style('>', SafeRepresenter.represent_str)
-# represent_literal_str = change_style('|', SafeRepresenter.represent_str)
-#
-# yaml.add_representer(folded_str, represent_folded_str)
-# yaml.add_representer(literal_str, represent_literal_str)
-#
-# class folded_unicode(unicode): pass
-# class literal_unicode(unicode): pass
-#
-# def folded_unicode_representer(dumper, data):
-#     return dumper.represent_scalar(u'tag:yaml.org,2002:str', data, style='>')
-# def literal_unicode_representer(dumper, data):
-#     return dumper.represent_scalar(u'tag:yaml.org,2002:str', data, style='|')
-#
-# yaml.add_representer(folded_unicode, folded_unicode_representer)
-# yaml.add_representer(literal_unicode, literal_unicode_representer)
-
-# class quoted(str):
-#     pass
-#
-# def quoted_presenter(dumper, data):
-#     return dumper.represent_scalar('tag:yaml.org,2002:str', data, style='"')
-#
-# yaml.add_representer(quoted, quoted_presenter)
-#
-# class literal(str):
-#     pass
-#
-# def literal_presenter(dumper, data):
-#     return dumper.represent_scalar('tag:yaml.org,2002:str', data, style='|')
-#
-# yaml.add_representer(literal, literal_presenter)
-
-
-# def str_presenter(dumper, data):
-#   if len(data.splitlines()) > 1:  # check for multiline string
-#     return dumper.represent_scalar('tag:yaml.org,2002:str', data, style='|')
-#   return dumper.represent_scalar('tag:yaml.org,2002:str', data)
-#
-# yaml.add_representer(str, str_presenter)
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 #######################################################################################################################
 ##  Script Exporter
@@ -75,44 +17,132 @@ from .models import PythonScript
 # HUGE thanks to Ruamel.yaml for making a more user friendly Python YAML library AND for this SO post
 # https://stackoverflow.com/questions/50852735/how-to-use-ruamel-yaml-to-dump-literal-scalars
 # Which gave me a point in the right direction to figure out to use a literal scalar.
-def exportScriptYAML(scriptId):
+def exportScriptYAMLObj(scriptId):
 
     try:
 
         script = PythonScript.objects.get(pk=scriptId)
 
-        print("Raw script:")
-        print(script.script)
+        supported_file_types = ['*']
+        try:
+            supported_file_types = json.loads(script.supported_file_types)
+        except Exception as e:
+            logger.error(f"Error trying to parse supported_file_types for script ID #{script.id}: {e}")
 
-        print("Test Script")
-        print("import json\ndef runShit(rawJson):\n\treturn json.loads(rawJson)")
+        env_variables = {'test': 'test'}
+        try:
+            env_variables=json.loads(script.env_variables)
+        except Exception as e:
+            logger.error(f"Error trying to parse env_variables for script ID #{script.id}: {e}")
 
         data = {
             'id': script.id,
             'name': script.name,
             'human_name': script.human_name,
+            'description': LiteralScalarString(script.description),
             'type': script.type,
-            'mode': script.mode,
-            'description': script.description,
-            'supported_file_types': script.supported_file_types,
+            'supported_file_types': supported_file_types,
             'script': LiteralScalarString(script.script),
-            'required_packages': script.required_packages,
-            'setup_script': script.setup_script,
-            'env_variables': script.env_variables,
-            'schema': script.schema
+            'required_packages': LiteralScalarString(script.required_packages),
+            'setup_script': LiteralScalarString(script.setup_script),
+            'env_variables': env_variables,
+            'schema': LiteralScalarString(script.schema)
         }
 
-        myYaml = io.StringIO()
-        yaml = YAML()
-        yaml.preserve_quotes = False
-        yaml.dump(data, myYaml)
-
-        return myYaml.getvalue()
-
-
-        #Review this: http://blogs.perl.org/users/tinita/2018/03/strings-in-yaml---to-quote-or-not-to-quote.html
-        #Possible solution: https://stackoverflow.com/questions/8640959/how-can-i-control-what-scalar-form-pyyaml-uses-for-my-data
+        return data
 
     except Exception as e:
         print(f"Error exporting script YAML: {e}")
-        return ""
+        return {}
+
+def exportPipelineNodeToYAMLObj(pythonNodeId):
+
+    try:
+
+        node = PipelineNode.objects.select_related('script').get(pk=pythonNodeId)
+
+        step_settings = {}
+        try:
+            step_settings = json.loads(node.step_settings)
+        except Exception as e:
+            logger.error(f"Error trying to parse step_settings for node ID #{node.id}: {e}")
+
+        data = {
+            'id': node.id,
+            'name': node.name,
+            'script': node.script.id if node.script else None,
+            'type': node.type,
+            'input_transform': LiteralScalarString(node.input_transform),
+            'step_settings': step_settings,
+            'x_coord': node.x_coord,
+            'y_coord': node.y_coord
+        }
+
+        return data
+
+    except Exception as e:
+        print(f"Error exporting PythonNode to YAML: {e}")
+        return {}
+
+
+def exportPipelineEdgeToYAMLObj(pythonEdgeId):
+
+    try:
+
+        edge = Edge.objects.get(pk=pythonEdgeId)
+
+        data = {
+            'id': edge.id,
+            'label': edge.label,
+            'start_node': edge.start_node.id,
+            'end_node': edge.end_node.id,
+            'transform_script': LiteralScalarString(edge.transform_script)
+        }
+
+        return data
+
+    except Exception as e:
+        print(f"Error exporting Pipeline Edge to YAML: {e}")
+        return {}
+
+def exportPipelineToYAMLObj(pipelineId):
+
+    try:
+
+        pipeline = Pipeline.objects.select_related('root_node').get(pk=pipelineId)
+
+        nodes = []
+        edges = []
+        scripts = {}
+
+        for node in PipelineNode.objects.filter(parent_pipeline=pipeline):
+            print("Node:")
+            print(node)
+            if node.script:
+                scripts[node.script.id] = exportScriptYAMLObj(node.script.id)
+
+        scripts = list(scripts.values())
+
+        for edge in Edge.objects.filter(parent_pipeline=pipeline):
+            edges.append(exportPipelineEdgeToYAMLObj(edge.id))
+
+        for node in PipelineNode.objects.filter(parent_pipeline=pipeline):
+            nodes.append(exportPipelineNodeToYAMLObj(node.id))
+
+        data = {
+            'name': pipeline.name,
+            'description': LiteralScalarString(pipeline.description),
+            'root_node': pipeline.root_node.id,
+            'scale': pipeline.scale,
+            'x_offset': pipeline.x_offset,
+            'y_offset': pipeline.y_offset,
+            'scripts': scripts,
+            'edges': edges,
+            'nodes': nodes,
+        }
+
+        return data
+
+    except Exception as e:
+        print(f"Error exporting Pipeline Edge to YAML: {e}")
+        return {}
