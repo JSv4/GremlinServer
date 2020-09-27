@@ -11,7 +11,7 @@ services:
     build:
       context: .
       dockerfile: ./compose/local/django/Dockerfile
-    image: django
+    image: gremlin_1234_django
     container_name: django
     depends_on:
       - postgres
@@ -44,7 +44,7 @@ services:
 
   gremlinworker:
     <<: *django
-    image: django
+    image: gremlin_1234_django:latest
     container_name: gremlinworker
     depends_on:
       - redis
@@ -59,7 +59,7 @@ services:
 
   celerybeat:
     <<: *django
-    image: django
+    image: gremlin_1234_django:latest
     container_name: celerybeat
     depends_on:
       - redis
@@ -70,7 +70,7 @@ services:
 
   flower:
     <<: *django
-    image: django
+    image: gremlin_1234_django:latest
     container_name: flower
     ports:
       - "5555:5555"
@@ -81,11 +81,3 @@ services:
     container_name: tika
     ports:
       - 9998:9998
-
-  sftp:
-    image: atmoz/sftp
-    volumes:
-        - /host/files:/home/foo/files
-    ports:
-        - "2222:22"
-    command: foo:pass:1001

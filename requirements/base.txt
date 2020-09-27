@@ -10,6 +10,7 @@ django-celery-beat==2.0.0  # https://github.com/celery/django-celery-beat
 flower==0.9.4  # https://github.com/mher/flower
 boto3==1.10.44
 botocore==1.13.44
+sendgrid>=6.4.7
 
 # Django
 # ------------------------------------------------------------------------------
@@ -31,6 +32,7 @@ djangorestframework-api-key==2.0.0
 djangorestframework-bulk==0.2.1
 django-storages==1.8
 PyJWT==1.7.1
+drf-yasg>=1.17.1
 
 # Data Science and Doc Extract
 tika>=1.22

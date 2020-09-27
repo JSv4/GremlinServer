@@ -114,6 +114,8 @@ class PythonScript(models.Model):
         default=RUN_ON_JOB,
     )
 
+    locked=models.BooleanField("Object locked (backend performing updates)...", default=False, blank=True)
+
     # Description of the python script
     description = models.TextField("Script Description", blank=True, default="")
 
@@ -241,6 +243,7 @@ class Pipeline(models.Model):
     name = models.CharField("Pipeline Name", max_length=512, default="Line Name", blank=False)
     description = models.TextField("Pipeline Description", default="", blank=True)
     production = models.BooleanField("Available in Production", default=False, blank=True)
+    locked=models.BooleanField("Object locked (backend performing updates)...", default=False, blank=True)
 
     owner = models.ForeignKey(
         get_user_model(),
@@ -340,6 +343,8 @@ class PipelineNode(models.Model):
         default=1
     )
 
+    locked=models.BooleanField("Object locked (backend performing updates)...", default=False, blank=True)
+
     # Mapping script... will be use to transform data coming into the script. Helpful in building pipelines where
     # you probably want to transform input data.
     input_transform = models.TextField("Input Transformation", blank=True, default="")
@@ -376,6 +381,7 @@ class Edge(models.Model):
     end_node = models.ForeignKey(PipelineNode, null=True, related_name='in_edges', on_delete=models.CASCADE)
     transform_script = models.TextField("Data Transform Script", blank=True, default="")
     parent_pipeline = models.ForeignKey(Pipeline, null=True, blank=False, related_name='pipeline_edges', on_delete=models.CASCADE)
+    locked=models.BooleanField("Object locked (backend performing updates)...", default=False, blank=True)
 
 class Document(models.Model):
 

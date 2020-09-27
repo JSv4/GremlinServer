@@ -35,8 +35,10 @@ def update_pipeline_schema(sender, instance, **kwargs):
 
     print(f"Got signal to update pipeline schema for sender type {sender} and instance ID #{instance.id}. "
                 f"kwargs are {kwargs}")
+
     try:
-        if sender is Edge:
+
+        if sender is Edge and not sender.parent_pipeline.locked if sender.parent_pipeline else False:
             print("Sender is Pipeline Digraph Edge")
             pipeline = Pipeline.objects.filter(id=instance.parent_pipeline.id)
             if pipeline.count() == 1:
@@ -44,17 +46,20 @@ def update_pipeline_schema(sender, instance, **kwargs):
 
         # If the sender is a PythonScript... get any Pipeline that uses the script (as well as any PipelineSteps)
         # Then we need to regenerate the supported filetypes and schemas for those objs.
-        elif sender is PythonScript:
+        elif sender is PythonScript and not sender.locked:
+
             print("Sender is PythonScript")
-            script = PythonScript.objects.get(id=instance.id)
 
             # Scripts have a lot of different settings and we don't want to have to constantly run the expensve recalculations
             # on the Pipeline and PipelineSteps for *every* script *every* time it changes. Check here to make sure that
             # the script schema or its supported file types have changed.
             # with pre-save, you can tell if an object already exists by seeing if the instance in question has an id
             if instance.id:
-                print("PythonScript already exists")
+
+                script = PythonScript.objects.get(id=instance.id)
                 oldInstance = PythonScript.objects.get(id=instance.id)
+
+                print("PythonScript already exists")
 
                 # If the supported_file_type and required_inputs (should be renamed schema) fields are the same from old obj
                 # to new, don't do anything further.
@@ -144,7 +149,10 @@ def update_pipeline_schema(sender, instance, **kwargs):
 # When a new script is created... perform required setup (if there are values that require setup)
 def setup_python_script_on_create(sender, instance, created, **kwargs):
 
-    if created:
+    if created and not instance.locked:
+
+        instance.locked=True
+        instance.save()
 
         # if there is a list of required packages, add a job to install them
         if not instance.required_packages == "":
@@ -156,49 +164,56 @@ def setup_python_script_on_create(sender, instance, created, **kwargs):
         if not instance.env_variables == "":
             runScriptEnvVarIntaller.delay(scriptId = instance.id)
 
+        instance.locked=False
+        instance.save()
 
 # When a python script is updated... save the updated code and, if necessary, run the installer.
 def update_python_script_on_save(sender, instance, **kwargs):
 
-    try:
-        obj = sender.objects.get(pk=instance.pk)
+    if not instance.locked:
+        try:
+            obj = sender.objects.get(pk=instance.pk)
 
-        # Required package field has changed, try to install new packages.
-        if not obj.required_packages == instance.required_packages:
-            print("Python script updated... running install script.")
+            # Required package field has changed, try to install new packages.
+            if not obj.required_packages == instance.required_packages:
+                print("Python script updated... running install script.")
 
-            # if there is a list of required packages, add a job to install them
-            if not instance.required_packages == "":
-                runScriptPackageInstaller.delay(scriptId=instance.id)
+                # if there is a list of required packages, add a job to install them
+                if not instance.required_packages == "":
+                    runScriptPackageInstaller.delay(scriptId=instance.id)
 
-        if not obj.setup_script == instance.setup_script:
-            print("Install script updated... running install script.")
+            if not obj.setup_script == instance.setup_script:
+                print("Install script updated... running install script.")
 
-            if not instance.setup_script == "":
-                runPythonScriptSetup.delay(scriptId=instance.id)
+                if not instance.setup_script == "":
+                    runPythonScriptSetup.delay(scriptId=instance.id)
 
-        if not obj.env_variables == instance.env_variables:
-            print("Env variables updated... ")
+            if not obj.env_variables == instance.env_variables:
+                print("Env variables updated... ")
 
-            if not instance.env_variables == "":
-                runScriptEnvVarIntaller.delay(scriptId=instance.id)
+                if not instance.env_variables == "":
+                    runScriptEnvVarIntaller.delay(scriptId=instance.id)
 
-    except sender.DoesNotExist:
-        pass
+        except sender.DoesNotExist:
+            pass
 
+    else:
+        print(f"Python script {instance} is locked.")
 
 # When a digraph edge is updated... rerender the digraph property... which is a react flowchart compatible JSON structure
 # That shows the digraph structure of the job... everything is keyed off of it.
 # TODO - what happens if you try to edit multiple nodes at the same time?
 #  Or you have this operation pending while editing an edge... need to think about how to handle this.
 def update_digraph_on_edge_change(sender, instance, **kwargs):
-    recalculatePipelineDigraph.delay(pipelineId=instance.parent_pipeline.id) #TODO - make sure
 
+    if not instance.locked:
+        recalculatePipelineDigraph.delay(pipelineId=instance.parent_pipeline.id) #TODO - make sure
 
 # When a node is created... rerender the parent_pipeline digraph property... e
 # That shows the digraph structure of the job... everything is keyed off of it.
 def update_digraph_on_node_create(sender, instance, created, **kwargs):
-    if created:
+
+    if created and not instance.parent_pipeline.locked if instance.parent_pipeline else False:
         print("Node was created... try to update parent_pipeline digraph")
         recalculatePipelineDigraph.delay(pipelineId=instance.parent_pipeline.id)
 

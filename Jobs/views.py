@@ -22,7 +22,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.permissions import BasePermission
 from rest_framework.exceptions import ParseError
-from rest_framework.parsers import FileUploadParser
+from rest_framework.parsers import FileUploadParser, MultiPartParser
 from rest_framework.views import APIView
 from rest_framework.generics import GenericAPIView
 from rest_framework.schemas.openapi import AutoSchema
@@ -30,7 +30,7 @@ from rest_framework import mixins
 
 from Jobs import serializers
 from Jobs.ImportExportUtils import exportScriptYAMLObj, exportPipelineNodeToYAMLObj, \
-    exportPipelineEdgeToYAMLObj, exportPipelineToYAMLObj
+    exportPipelineEdgeToYAMLObj, exportPipelineToYAMLObj, importPipelineFromYAML
 from Jobs.tasks.task_helpers import transformStepInputs
 from .models import Document, Job, Result, PythonScript, PipelineNode, Pipeline, TaskLogEntry, JobLogEntry, Edge
 from .paginations import MediumResultsSetPagination, LargeResultsSetPagination, SmallResultsSetPagination
@@ -656,6 +656,38 @@ class PythonScriptViewSet(viewsets.ModelViewSet):
             return Response(e,
                             status=status.HTTP_400_BAD_REQUEST)
 
+class UploadPipelineViewSet(APIView):
+    allowed_methods = ['post']
+    permission_classes = [IsAuthenticated & WriteOnlyIfIsAdminOrEng]
+    parser_classes = [MultiPartParser]
+
+    def post(self, request, format=None):
+
+        if not request.FILES['file']:
+            print("Empty content!")
+            raise ParseError("Empty content")
+
+        try:
+
+            print(f"Got new pipeline file: {request.FILES['file'].name}")
+            print(request.data)
+
+            yamlString = request.FILES['file'].read()
+            print("Yaml string:")
+            print(yamlString)
+            parent_pipeline = importPipelineFromYAML(yamlString)
+            serializer = PipelineSerializer(parent_pipeline)
+
+            print(f"Should return: {serializer.data}")
+
+            response = JsonResponse(serializer.data)
+            return response
+
+        except Exception as e:
+            print("Exception encountered: ")
+            print(e)
+            return Response(e,
+                            status=status.HTTP_400_BAD_REQUEST)
 
 class UploadScriptViewSet(APIView):
 

@@ -6,11 +6,14 @@ from rest_framework.documentation import include_docs_urls
 from gremlin_gplv3.users.api.views import UserViewSet
 from Jobs.views import JobViewSet, DocumentViewSet, ResultsViewSet, \
     PipelineViewSet, PythonScriptViewSet, PipelineStepViewSet, LogViewSet, \
-    UploadScriptViewSet, ProjectViewSet, EdgeViewSet
+    UploadScriptViewSet, ProjectViewSet, EdgeViewSet, UploadPipelineViewSet
+
+from gremlin_gplv3.users.api.views import InviteUserViewSet, AllUserViewSet
 
 # DRF Basics
 router = DefaultRouter()
-router.register(r'Users', UserViewSet)
+router.register(r'User', UserViewSet)
+router.register(r'Users', AllUserViewSet)
 router.register(r'Jobs', JobViewSet)
 router.register(r'Documents', DocumentViewSet)
 router.register(r'Results', ResultsViewSet)
@@ -25,6 +28,8 @@ app_name = "api"
 urlpatterns = [
     *router.urls,
     url(r'CreateAndLaunchJob', ProjectViewSet.as_view()),
-    url(r'UploadScript', UploadScriptViewSet.as_view())
+    url(r'UploadScript', UploadScriptViewSet.as_view()),
+    url(r'UploadPipeline', UploadPipelineViewSet.as_view()),
+    url(r'InviteUser', InviteUserViewSet.as_view())
 ]
 
