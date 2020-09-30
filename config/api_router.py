@@ -1,14 +1,12 @@
-from django.conf import settings
 from django.conf.urls import url
 from rest_framework.routers import DefaultRouter
-from rest_framework.documentation import include_docs_urls
 
-from gremlin_gplv3.users.api.views import UserViewSet
 from Jobs.views import JobViewSet, DocumentViewSet, ResultsViewSet, \
     PipelineViewSet, PythonScriptViewSet, PipelineStepViewSet, LogViewSet, \
     UploadScriptViewSet, ProjectViewSet, EdgeViewSet, UploadPipelineViewSet
 
-from gremlin_gplv3.users.api.views import InviteUserViewSet, AllUserViewSet
+from gremlin_gplv3.users.api.views import InviteUserViewSet, AllUserViewSet, \
+    UserViewSet, ChangePasswordViewSet
 
 # DRF Basics
 router = DefaultRouter()
@@ -30,6 +28,7 @@ urlpatterns = [
     url(r'CreateAndLaunchJob', ProjectViewSet.as_view()),
     url(r'UploadScript', UploadScriptViewSet.as_view()),
     url(r'UploadPipeline', UploadPipelineViewSet.as_view()),
-    url(r'InviteUser', InviteUserViewSet.as_view())
+    url(r'InviteUser', InviteUserViewSet.as_view()),
+    url(r'ChangePassword', ChangePasswordViewSet.as_view())
 ]
 
