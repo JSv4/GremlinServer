@@ -281,6 +281,7 @@ class Pipeline(models.Model):
 
             super(Pipeline, self).save(*args, **kwargs)
 
+            # TODO - changes to or creation of related models should happen in signals... changes to THIS model happen in save
             root = PipelineNode.objects.create(**{
                 "type": PipelineNode.ROOT_NODE,
                 "script": None,
@@ -295,8 +296,26 @@ class Pipeline(models.Model):
 
             self.save()
 
+        # When existing pipeline's view port is offset, inject the new coordinates into the digraph.
+        # Run synchronously as this should be pretty fast and we don't want race condition occurring where
+        # user updates position requests new position and then DRF fetches pre-updated version and returns
+        # out of date position
         else:
-            super(Pipeline, self).save(*args, **kwargs)
+
+            if self.pk is not None:
+
+                orig = Pipeline.objects.get(pk=self.pk)
+
+                if orig.x_offset != self.x_offset or orig.y_offset != self.y_offset:
+                    print(f"Pipeline ID #{self.pk} has been moved! Updating digraph.")
+
+                    digraph = {**orig.digraph}
+                    digraph['offset']['x'] = self.x_offset
+                    digraph['offset']['y'] = self.y_offset
+
+                    self.digraph = digraph
+
+        super(Pipeline, self).save(*args, **kwargs)
 
 class PipelineNode(models.Model):
 

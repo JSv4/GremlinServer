@@ -277,6 +277,8 @@ def runScriptPackageInstaller(*args, scriptId=-1, **kwargs):
 
 @celery_app.task(base=FaultTolerantTask, name="Run Script Setup Script Installer")
 def runScriptSetupScript(*args, scriptId=-1, **kwargs):
+    
+    logging.info(f"Running setup script for script ID {scriptId}")
 
     try:
 

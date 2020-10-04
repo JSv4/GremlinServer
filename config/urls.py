@@ -17,7 +17,7 @@ from drf_yasg import openapi
 # API documentation
 schema_view = get_schema_view(
    openapi.Info(
-      title="GREMLIN API",
+      title="GREMLIN API (Work in Progress)",
       default_version='v1',
       description="The low-code, microservices API",
       terms_of_service="Coming soon... In the meantime, no warranties, express or implied and provided totally as-is...",
@@ -25,7 +25,7 @@ schema_view = get_schema_view(
       license=openapi.License(name="GPLv3"),
    ),
    public=True,
-   permission_classes=(permissions.AllowAny,),
+   permission_classes=(permissions.IsAdminUser,),
 )
 
 urlpatterns = [

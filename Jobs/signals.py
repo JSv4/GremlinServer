@@ -28,7 +28,7 @@ def process_doc_on_create_atomic(sender, instance, created, **kwargs):
 
 
 # Updates the pipeline schema and the pipeline supported files when one of the linked scripts changes...
-# I am doing this to avoid complicated recalculatings at runtime... that said, it's possible that trying to compute
+# I am doing this to avoid complicated recalculations at runtime... that said, it's possible that trying to compute
 # this on the backend in response to changes could lead to data getting out of sync... Can trying to remedy this later
 # if it becomes an issue.
 def update_pipeline_schema(sender, instance, **kwargs):
@@ -202,8 +202,8 @@ def update_python_script_on_save(sender, instance, **kwargs):
 
 # When a digraph edge is updated... rerender the digraph property... which is a react flowchart compatible JSON structure
 # That shows the digraph structure of the job... everything is keyed off of it.
-# TODO - what happens if you try to edit multiple nodes at the same time?
-#  Or you have this operation pending while editing an edge... need to think about how to handle this.
+# TODO - what happens if you try to edit multiple nodes at the same time? THIS IS NOT ALLOWED. SIMPLE
+#  Or you have this operation pending while editing an edge...? Need to think about how to handle this.
 def update_digraph_on_edge_change(sender, instance, **kwargs):
 
     if not instance.locked:
@@ -223,6 +223,7 @@ def update_digraph_on_node_create(sender, instance, created, **kwargs):
 def update_digraph_on_node_delete(sender, instance, **kwargs):
     print("Node was deleted... try to update parent_pipeline digraph")
     recalculatePipelineDigraph.delay(pipelineId=instance.parent_pipeline.id)
+
 
 # When digraph node *position* is updated, inject the new coordinates into the digraph.
 # Run synchronously as this should be pretty fast and we don't want race condition occuring where user updates position
