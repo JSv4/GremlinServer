@@ -36,10 +36,12 @@ import json
 import time
 import jsonschema
 
+
 # Errors
 class Error(Exception):
     """Base class for exceptions in this module."""
     pass
+
 
 class FileNotSupportedError(Error):
     """Exception raised for unsupported file input.
@@ -51,6 +53,7 @@ class FileNotSupportedError(Error):
 
     def __init__(self, message):
         self.message = message
+
 
 class FileInputError(Error):
     """Exception raised for errors in the file input.
@@ -64,6 +67,7 @@ class FileInputError(Error):
         self.expression = expression
         self.message = message
 
+
 class DataInputError(Error):
     """Exception raised for errors in the data input.
 
@@ -75,6 +79,7 @@ class DataInputError(Error):
     def __init__(self, expression, message):
         self.expression = expression
         self.message = message
+
 
 class UserScriptError(Error):
     """Raised when User's script fails.
@@ -99,6 +104,7 @@ class PrecedingNodeError(Error):
     def __init__(self, message):
         self.message = message
 
+
 class JobAlreadyFinishedError(Error):
     """Raised when somehow node is running but job is done. Not sure this can actually happen unless DB corrupted.
 
@@ -108,6 +114,7 @@ class JobAlreadyFinishedError(Error):
 
     def __init__(self, message):
         self.message = message
+
 
 class UserScriptError(Error):
     """Raised when user script fails.
@@ -119,6 +126,7 @@ class UserScriptError(Error):
     def __init__(self, message):
         self.message = message
 
+
 class PipelineError(Error):
     """Raised when user script fails.
 
@@ -128,6 +136,7 @@ class PipelineError(Error):
 
     def __init__(self, message):
         self.message = message
+
 
 # Tika Extraction Imports
 import tika  # python wrapper for tika server
@@ -250,39 +259,51 @@ class FaultTolerantTask(celery.Task):
 
 
 @celery_app.task(base=FaultTolerantTask, name="Run Script Package Installer")
-def runScriptPackageInstaller(*args, scriptId=-1, **kwargs):
-    try:
-        pythonScript = PythonScript.objects.get(id=scriptId)
+def runScriptPackageInstaller(*args, scriptId=-1, new_packages="", **kwargs):
+    if new_packages != "":
+        try:
+            pythonScript = PythonScript.objects.get(id=scriptId)
+            pythonScript.locked = True
+            pythonScript.save()
 
-        packages = pythonScript.required_packages.split("\n")
-        if len(packages) > 0:
-            logging.info(f"Script requires {len(packages)} packages. "
-                         f"Ensure required packages are installed:\n {pythonScript.required_packages}")
+            packages = new_packages.split("\n")
+            if len(packages) > 0:
+                logging.info(f"Script requires {len(packages)} packages. "
+                             f"Ensure required packages are installed:\n {new_packages}")
 
-            p = subprocess.Popen([sys.executable, "-m", "pip", "install", *packages], stdout=subprocess.PIPE)
-            out, err = p.communicate()
+                p = subprocess.Popen([sys.executable, "-m", "pip", "install", *packages], stdout=subprocess.PIPE)
+                out, err = p.communicate()
 
-            # Need to escape out the escape chars in the resulting string: https://stackoverflow.com/questions/6867588/how-to-convert-escaped-characters
-            out = codecs.getdecoder("unicode_escape")(out)[0]
-            if err:
-                err = codecs.getdecoder("unicode_escape")(err)[0]
-                logging.error(f"Errors from pythonScript pre check: \n{err}")
+                # Need to escape out the escape chars in the resulting string: https://stackoverflow.com/questions/6867588/how-to-convert-escaped-characters
+                out = codecs.getdecoder("unicode_escape")(out)[0]
+                if err:
+                    err = codecs.getdecoder("unicode_escape")(err)[0]
+                    logging.error(f"Errors from pythonScript pre check: \n{err}")
 
-            logging.info(f"Results of python installer for {pythonScript.name} \n{out}")
+                logging.info(f"Results of python installer for {pythonScript.name} \n{out}")
+                pythonScript.locked = False
+                pythonScript.save()
 
-    except Exception as e:
-        logging.error(f"Error setting running python script installers.\nScript ID:{scriptId}.\n"
-                      f"Error: \n{e}")
+        except Exception as e:
+            logging.error(f"Error setting running python script installers.\nScript ID:{scriptId}.\n"
+                          f"Error: \n{e}")
+
+            pythonScript = PythonScript.objects.get(id=scriptId)
+            pythonScript.locked = False
+            pythonScript.save()
 
 
 @celery_app.task(base=FaultTolerantTask, name="Run Script Setup Script Installer")
 def runScriptSetupScript(*args, scriptId=-1, **kwargs):
-    
     logging.info(f"Running setup script for script ID {scriptId}")
 
     try:
 
         pythonScript = PythonScript.objects.get(id=scriptId)
+
+        # indicate that the script is being setup
+        pythonScript.locked = True
+        pythonScript.save()
 
         setupScript = pythonScript.setup_script
         if setupScript != "":
@@ -304,23 +325,28 @@ def runScriptSetupScript(*args, scriptId=-1, **kwargs):
 
                 logging.info(f"Results of bash install pythonScript for {pythonScript.name}: \n{out}")
 
+        pythonScript.locked = False
+        pythonScript.save()
+
     except Exception as e:
+        pythonScript = PythonScript.objects.get(id=scriptId)
+        pythonScript.locked = False
+        pythonScript.save()
         logging.error(f"Error setting running python script installers.\nScript ID:{scriptId}.\n"
                       f"Error: \n{e}")
 
 
 @celery_app.task(base=FaultTolerantTask, name="Run Script Env Variable Installer")
-def runScriptEnvVarIntaller(*args, scriptId=-1, **kwargs):
+def runScriptEnvVarInstaller(*args, scriptId=-1, env_variables=None, **kwargs):
     try:
         pythonScript = PythonScript.objects.get(id=scriptId)
 
-        envVariables = pythonScript.env_variables
-        if envVariables != "":
-            logging.info(f"It appears there are env variables: {envVariables}")
+        if env_variables and env_variables != "":
+            logging.info(f"It appears there are env variables: {env_variables}")
 
             vars = {}
             try:
-                vars = json.loads(envVariables)
+                vars = json.loads(env_variables)
                 logging.info(f"Parsed following env var structure: {vars}")
                 logging.info(f"Var type is: {type(vars)}")
             except:
@@ -340,7 +366,6 @@ def runScriptEnvVarIntaller(*args, scriptId=-1, **kwargs):
 # from the on_save signal for the pipeline or the
 @celery_app.task(base=FaultTolerantTask, name="Calculate digraph")
 def recalculatePipelineDigraph(*args, pipelineId=-1, **kwargs):
-
     print("Recalculate Pipeline Digraph")
 
     try:
@@ -450,18 +475,19 @@ def recalculatePipelineDigraph(*args, pipelineId=-1, **kwargs):
         print("Digraph is: ")
         print(digraph)
 
-        pipeline.digraph=digraph
+        pipeline.digraph = digraph
         pipeline.save()
 
         return JOB_SUCCESS
 
     except Exception as e:
-        returnMessage = "{0} - Error rendering digraph for pipeline ID #{1}: {2}".format(JOB_FAILED_DID_NOT_FINISH, pipelineId, e)
+        returnMessage = "{0} - Error rendering digraph for pipeline ID #{1}: {2}".format(JOB_FAILED_DID_NOT_FINISH,
+                                                                                         pipelineId, e)
         return returnMessage
+
 
 @celery_app.task(base=FaultTolerantTask, name="Run Job To Node")
 def runJobToNode(*args, jobId=-1, endNodeId=-1, **kwargs):
-
     try:
 
         if jobId == -1:
@@ -491,7 +517,6 @@ def runJobToNode(*args, jobId=-1, endNodeId=-1, **kwargs):
         logger.info("Job pipeline is: {0}".format(pipeline))
         jobLogger.info("\nJob pipeline is: {0}".format(pipeline))
         logger.info("\nJob pipeline is: {0}".format(pipeline))
-
 
         # flatten the digraph and ensure every node only runs after all of the nodes on which it could depend run...
         # this is probably the *least* efficient way to handle this
@@ -569,9 +594,9 @@ def runJobToNode(*args, jobId=-1, endNodeId=-1, **kwargs):
         jobLogger.error(returnMessage)
         return returnMessage
 
+
 @celery_app.task(base=FaultTolerantTask, name="Run Job")
 def runJob(*args, jobId=-1, endStep=-1, **kwargs):
-
     try:
 
         if jobId == -1:
@@ -580,7 +605,7 @@ def runJob(*args, jobId=-1, endStep=-1, **kwargs):
         if len(Job.objects.filter(id=jobId)) != 1:
             raise PipelineError(message="ERROR - There appears to be no job with jobId = {0}.".format(jobId))
 
-        #Redirect stdout and setup a job logger which will collect stdout on finish and then write to DB
+        # Redirect stdout and setup a job logger which will collect stdout on finish and then write to DB
         temp_out = StringIO()
         jobLogger = JobLogger(jobId=jobId, name="runJob")
 
@@ -639,15 +664,16 @@ def runJob(*args, jobId=-1, endStep=-1, **kwargs):
                     celery_jobs.append(createSharedResultForParallelExecution.si(jobId=jobId, stepId=node.id))
                     celery_jobs.append(chord(
                         group([applyPythonScriptToJobDoc.s(docId=d.id, jobId=jobId, nodeId=node.id,
-                                                     scriptId=node.script.id)
-                         for d in jobDocs]),
+                                                           scriptId=node.script.id)
+                               for d in jobDocs]),
                         resultsMerge.si(jobId=jobId, stepId=node.id)))
                 elif node.script.type == PythonScript.RUN_ON_JOB:
                     celery_jobs.append(
                         applyPythonScriptToJob.s(jobId=jobId, nodeId=node.id, scriptId=node.script.id))
                 else:
                     raise PipelineError(message="{0} - {1}".format(JOB_FAILED_DID_NOT_FINISH,
-                                                 "Unrecognized script type: {0}".format(node.script.type)))
+                                                                   "Unrecognized script type: {0}".format(
+                                                                       node.script.type)))
 
         # add last step which will shut down the job when the tasks complete
         celery_jobs.append(packageJobResults.s(jobId=jobId))
@@ -673,22 +699,33 @@ def runJob(*args, jobId=-1, endStep=-1, **kwargs):
         jobLogger.info(temp_out.getvalue())
         return returnMessage
 
+
+# Unlock a script after setup is complete.
+@celery_app.task(base=FaultTolerantTask, name="Unlock Script")
+def unlockScript(*args, scriptId=-1, **kwargs):
+    try:
+        script = PythonScript.objects.get(pk=scriptId)
+        script.locked = False
+        script.save()
+    except Exception as err:
+        print(f"Error trying to unlock script: {err}")
+
+
 # shutdown the job
 @celery_app.task(base=FaultTolerantTask, name="Stop Current Pipeline")
 def stopPipeline(*args, jobId=-1, **kwargs):
-
     temp_out = StringIO()
     sys.stdout = temp_out
     jobLogger = JobLogger(jobId=jobId, name="runJob")
 
     returnMessage = JOB_FAILED_DID_NOT_FINISH
-    error=False
+    error = False
 
     temp_out.write(f"Trying to stop pipeline for job {jobId} with args of: {args}")
 
     if len(args) > 0 and not jobSucceeded(args[0]):
         returnMessage = "{0} - Pipeline failure for job Id {1}. Message: {2}".format(JOB_FAILED_DID_NOT_FINISH, jobId,
-                                                                               args[0])
+                                                                                     args[0])
         stopJob(jobId=jobId, status=returnMessage, error=True)
 
     else:
@@ -702,7 +739,7 @@ def stopPipeline(*args, jobId=-1, **kwargs):
                 JOB_FAILED_DID_NOT_FINISH, jobId, err)
             traceback.print_exc(file=temp_out)
             jobLogger.error(returnMessage)
-            error=True
+            error = True
 
     stopJob(jobId=jobId, status=JOB_SUCCESS, error=error)
     temp_out.write(returnMessage)
@@ -715,10 +752,12 @@ def stopPipeline(*args, jobId=-1, **kwargs):
 # processingTask is assumed to take arguments job and doc
 @celery_app.task(base=FaultTolerantTask, name="Celery Wrapper for Python Job Doc Task")
 def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
-
     # Create local logging data object
     jobLog = StringIO()
     jobLogger = JobLogger(jobId=jobId, name="applyPythonScriptToJobDoc")
+
+    # Create placeholder for result object
+    result = None
 
     jobLog.write("\napplyPythonScriptToJobDoc - args is:{0}".format(args))
     jobLog.write("\napplyPythonScriptToJobDoc - docId is:{0}".format(docId))
@@ -759,7 +798,7 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, nodeId=-1, scriptId=-1,
         )
         result.save()
 
-        #If job checks out, get remaining objects
+        # If job checks out, get remaining objects
         doc = Document.objects.get(id=docId)
         pipeline_node = PipelineNode.objects.get(id=nodeId)
         script = pipeline_node.script
@@ -814,7 +853,7 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, nodeId=-1, scriptId=-1,
         docBytes = None
 
         usingS3 = (
-                settings.DEFAULT_FILE_STORAGE == "gremlin_gplv3.utils.storages.MediaRootS3Boto3Storage")
+            settings.DEFAULT_FILE_STORAGE == "gremlin_gplv3.utils.storages.MediaRootS3Boto3Storage")
         jobLog.write("UsingS3: {0}".format(usingS3))
 
         # if the rawText field is still empty... assume that extraction hasn't happened.
@@ -888,10 +927,10 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, nodeId=-1, scriptId=-1,
 
     except Exception as e:
         returnMessage = "{0} - Error in applyPythonScriptToJobDoc for job #{1}, script #{2}: {3}".format(
-                JOB_FAILED_DID_NOT_FINISH,
-                jobId,
-                nodeId,
-                e
+            JOB_FAILED_DID_NOT_FINISH,
+            jobId,
+            nodeId,
+            e
         )
         jobLogger.error(msg=returnMessage)
         traceback.print_exc(file=jobLog)
@@ -909,11 +948,14 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, nodeId=-1, scriptId=-1,
 
     return JOB_FAILED_DID_NOT_FINISH
 
+
 @celery_app.task(base=FaultTolerantTask, name="Celery Wrapper for Python Job Task")
 def applyPythonScriptToJob(*args, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
-
-    nodeLog = StringIO() #Memory object to hold job logs for job-level commands (will redirect print statements)
+    nodeLog = StringIO()  # Memory object to hold job logs for job-level commands (will redirect print statements)
     jobLogger = JobLogger(jobId=jobId, name="applyPythonScriptToJob")
+
+    # Placeholder for results
+    result = None
 
     nodeLog.write("applyPythonScriptToJob - jobId: {0}".format(jobId))
     nodeLog.write("\napplyPythonScriptToJob - scriptId: {0}".format(scriptId))
@@ -981,15 +1023,15 @@ def applyPythonScriptToJob(*args, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
 
         nodeLog.write("\nData transform complete")
 
-        result.input_settings=json.dumps(script_inputs)
-        result.raw_input_data=json.dumps(preceding_data)
-        result.transformed_input_data=json.dumps(transformed_data)
+        result.input_settings = json.dumps(script_inputs)
+        result.raw_input_data = json.dumps(preceding_data)
+        result.transformed_input_data = json.dumps(transformed_data)
         result.save()
 
         # This will only get logs from within user's script if they actually use the logger.
         scriptLogger = TaskLogger(resultId=result.id, name="User_Job_Script")
         nodeLog.write(f"\nStarting script for job ID #{job.id} (step # {pipeline_node.step_number}) "
-                    f"with inputs: {script_inputs}")
+                      f"with inputs: {script_inputs}")
 
         # call the script with the appropriate Gremlin / Django objects already loaded (don't want the user
         # interacting with underlying Django infrastructure.
@@ -1051,18 +1093,18 @@ def applyPythonScriptToJob(*args, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
         elif file_ext and len(file_ext) > 1:
             file_data = ContentFile(fileBytes)
             result.file.save("./step_results/{0}/{1}/Step {2} ({3}).{4}".format(
-                    jobId,
-                    nodeId,
-                    pipeline_node.name,
-                    pipeline_node.step_number + 1,
-                    file_ext
-                ),
+                jobId,
+                nodeId,
+                pipeline_node.name,
+                pipeline_node.step_number + 1,
+                file_ext
+            ),
                 file_data
             )
 
         result.output_data = json.dumps(data, indent=4)
         result.stop_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
-        result.finished=True
+        result.finished = True
         result.save()
 
         if finished:
@@ -1075,7 +1117,7 @@ def applyPythonScriptToJob(*args, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
             return JOB_SUCCESS
 
         else:
-            result.error=True
+            result.error = True
             result.save()
             raise UserScriptError(message="User script returned Finished=False. Node in error state.")
 
@@ -1101,6 +1143,7 @@ def applyPythonScriptToJob(*args, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
 
     return JOB_FAILED_DID_NOT_FINISH
 
+
 # Apparently, celery will NOT let you chain two groups without automatically converting the groups to chords.
 # This is not really desired and is killing my workflow... the workaround is to terminate each group in chain with this "chordfinisher"
 # to nullify celery's conversion into chord and then you get behavior you want from chaining the groups.
@@ -1108,13 +1151,12 @@ def applyPythonScriptToJob(*args, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
 # https://stackoverflow.com/questions/15123772/celery-chaining-groups-and-subtasks-out-of-order-execution
 @celery_app.task(base=FaultTolerantTask)
 def chordfinisher(previousMessage, *args, **kwargs):
-
     return previousMessage
+
 
 # Tee up a parallel step by creating step result with proper start time... otherwise we'll lose
 @celery_app.task(base=FaultTolerantTask)
 def createSharedResultForParallelExecution(*args, jobId=-1, stepId=-1, **kwargs):
-
     logger.info("createSharedResultForParallelExecution - jobId {0} and stepId {1}".format(jobId, stepId))
 
     try:
@@ -1158,16 +1200,16 @@ def createSharedResultForParallelExecution(*args, jobId=-1, stepId=-1, **kwargs)
         return "{0} - Error trying to start parallel step. Perhaps specified job or pipeline is wrong? This shouldn't " \
                "ever happen (comforting, right?). Exception is: {1}".format(JOB_FAILED_DID_NOT_FINISH, e)
 
+
 # Package up all of the individual results data objs for a given step
 # and pass them along to the next step
 @celery_app.task(base=FaultTolerantTask)
 def resultsMerge(*args, jobId=-1, stepId=-1, **kwargs):
-
     logger.info("Results merge for stepId {0} of jobId {1}".format(stepId, jobId))
 
     # Get loggers
     jobLogger = JobLogger(jobId=jobId, name="resultsMerge")
-    mergeLog = StringIO() #Memory object to hold job logs for job-level commands (will redirect print statements)
+    mergeLog = StringIO()  # Memory object to hold job logs for job-level commands (will redirect print statements)
 
     # Setup control variables
     error = False
@@ -1206,7 +1248,7 @@ def resultsMerge(*args, jobId=-1, stepId=-1, **kwargs):
             input_settings[f"{result.id}"] = json.loads(result.input_settings)
         except Exception as e:
             logger.info(f"\nError while trying to input settings for step {result.pipeline_node.step_number} and " \
-                   f"doc {result.id}: {e}")
+                        f"doc {result.id}: {e}")
             input_settings[f"{result.id}"] = {}
             error = True
 
@@ -1215,8 +1257,9 @@ def resultsMerge(*args, jobId=-1, stepId=-1, **kwargs):
 
         except Exception as e:
 
-            mergeLog(f"\nError while trying to merge transformed input data for step {result.pipeline_node.step_number} "
-                     f"and doc {result.id}: {e}")
+            mergeLog(
+                f"\nError while trying to merge transformed input data for step {result.pipeline_node.step_number} "
+                f"and doc {result.id}: {e}")
             transformed_inputs[f"{result.id}"] = {}
             error = True
 
@@ -1224,15 +1267,17 @@ def resultsMerge(*args, jobId=-1, stepId=-1, **kwargs):
             raw_inputs[f"{result.id}"] = json.loads(result.input_data.raw_input_data)
 
         except Exception as e:
-            mergeLog.write(f"\nWARNING - Error while trying to merge raw input data for step {result.pipeline_node.step_number} and " \
-                   f"doc {result.id}: {e}")
+            mergeLog.write(
+                f"\nWARNING - Error while trying to merge raw input data for step {result.pipeline_node.step_number} and " \
+                f"doc {result.id}: {e}")
             raw_inputs[f"{result.id}"] = {}
 
         try:
             outputs[f"{result.id}"] = json.loads(result.output_data.output_data)
         except Exception as e:
-            mergeLog.write(f"WARNING - Error while trying to merge output data for step {result.pipeline_node.step_number} and " \
-                   f"doc {result.id}: {e}")
+            mergeLog.write(
+                f"WARNING - Error while trying to merge output data for step {result.pipeline_node.step_number} and " \
+                f"doc {result.id}: {e}")
             outputs[f"{result.id}"] = {}
             error = True
 
@@ -1242,10 +1287,10 @@ def resultsMerge(*args, jobId=-1, stepId=-1, **kwargs):
     job.completed_tasks = job.completed_tasks + 1
     job.save()
 
-    step_result.stop_time=datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
-    step_result.raw_input_data=json.dumps(raw_inputs)
-    step_result.transformed_input_data=json.dumps(transformed_inputs)
-    step_result.output_data=json.dumps({"documents": outputs})
+    step_result.stop_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
+    step_result.raw_input_data = json.dumps(raw_inputs)
+    step_result.transformed_input_data = json.dumps(transformed_inputs)
+    step_result.output_data = json.dumps({"documents": outputs})
     step_result.finished = True
     step_result.terror = error
     step_result.save()
@@ -1354,24 +1399,31 @@ def installPackages(*args, scriptId=-1, **kwargs):
 # of admins. Be careful how this is exposed to users. It seems necessary for installing new packages, but, long-term,
 # there needs to be a way to install new scripts, install packages and run any necessary setup steps
 @celery_app.task(base=FaultTolerantTask, name="Run Python Setup Script From Text")
-def runPythonScriptSetup(*args, scriptId=-1, **kwargs):
-
-    returnMessage = JOB_FAILED_DID_NOT_FINISH
-
-    temp_out = StringIO()
-    sys.stdout = temp_out
+def runPythonScriptSetup(*args, scriptId=-1, setup_script=None, **kwargs):
 
     print("#################### Setup Script Log ####################\n\n")
+    returnMessage = JOB_FAILED_DID_NOT_FINISH
 
     try:
         # call pip as subprocess in current environment. Capture output using p.communicate()
         # based on: https://stackoverflow.com/questions/2502833/store-output-of-subprocess-popen-call-in-a-string
-        print("Script setup arguments are: ")
-        print(args)
+        log = io.StringIO()
 
-        for line in args:
-            print(line.split())
-            p = subprocess.Popen(line.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        print("Script script is: ")
+        print(setup_script)
+
+        lines = setup_script.split("\n")
+
+        for line in lines:
+
+            log.writelines(f"Run line: {line}")
+            print(f"Run line: {line}")
+
+            args = line.split()
+            print(f"Args are: {args}")
+            log.writelines(f"Args are: {args}")
+
+            p = subprocess.Popen(args=args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             out, err = p.communicate()
 
             # Need to escape out the escape chars in the resulting string: https://stackoverflow.com/questions/6867588/how-to-convert-escaped-characters
@@ -1379,9 +1431,10 @@ def runPythonScriptSetup(*args, scriptId=-1, **kwargs):
             err = codecs.getdecoder("unicode_escape")(err)[0]
 
             print("\nSuccess:\n" + out + "\nErrors:\n" + err)
+            log.writelines("\nSuccess:\n" + out + "\nErrors:\n" + err)
 
         script = PythonScript.objects.get(id=scriptId)
-        script.setup_log = script.setup_log + "\n\n" + temp_out.getvalue()
+        script.setup_log = script.setup_log + "\n\n" + log.getvalue()
         script.save()
 
         returnMessage = "{0} - Package install: {1}".format(JOB_SUCCESS, out)
@@ -1389,8 +1442,8 @@ def runPythonScriptSetup(*args, scriptId=-1, **kwargs):
     except Exception as e:
         print(f"Error with install: {e}")
 
-    sys.stdout = sys.__stdout__
     return returnMessage
+
 
 # create a new package for a python script... can be imported dynamically later
 @celery_app.task(base=FaultTolerantTask, name="Create New Package")
@@ -1515,7 +1568,6 @@ def extractTextForDoc(docId=-1):
 
 @celery_app.task(base=FaultTolerantTask, name="Package Job Result")
 def packageJobResults(*args, jobId=-1, **kwargs):
-
     jobLogger = logging.LoggerAdapter(job_logger, extra={"jobId": jobId})
     jobLogger.info(f"Package Job Results for Job ID {jobId}")
 

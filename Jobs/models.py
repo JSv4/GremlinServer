@@ -1,13 +1,13 @@
 import logging, os, operator
+
+from celery import chain
 from django.db import models
 from django import utils
 from django.contrib.auth import get_user_model
-from django.db.models import TextField
 from django.utils.translation import ugettext_lazy as _
-import json
+
 
 class TaskLogEntry(models.Model):
-
     # Enumerations for the task DB logger
     LOG_LEVELS = (
         (logging.NOTSET, _('NotSet')),
@@ -40,8 +40,8 @@ class TaskLogEntry(models.Model):
         ordering = ('-create_datetime',)
         verbose_name_plural = verbose_name = 'Task Log Entries'
 
-class JobLogEntry(models.Model):
 
+class JobLogEntry(models.Model):
     # Enumerations for the task DB logger
     LOG_LEVELS = (
         (logging.NOTSET, _('NotSet')),
@@ -73,8 +73,8 @@ class JobLogEntry(models.Model):
         ordering = ('-create_datetime',)
         verbose_name_plural = verbose_name = 'Job Log Entries'
 
-class PythonScript(models.Model):
 
+class PythonScript(models.Model):
     # Job Type Choices
     RUN_ON_JOB_ALL_DOCS_PARALLEL = "RUN_ON_JOB_DOCS_PARALLEL"
     RUN_ON_JOB = 'RUN_ON_JOB'
@@ -94,7 +94,7 @@ class PythonScript(models.Model):
         (DEPLOYED, _('Ready for Deployment')),
     ]
 
-    #for later... if we want to try to segregate everything by user accounts
+    # for later... if we want to try to segregate everything by user accounts
     owner = models.ForeignKey(
         get_user_model(),
         on_delete=models.CASCADE,
@@ -114,7 +114,7 @@ class PythonScript(models.Model):
         default=RUN_ON_JOB,
     )
 
-    locked=models.BooleanField("Object locked (backend performing updates)...", default=False, blank=True)
+    locked = models.BooleanField("Object locked (backend performing updates)...", default=False, blank=True)
 
     # Description of the python script
     description = models.TextField("Script Description", blank=True, default="")
@@ -155,8 +155,33 @@ class PythonScript(models.Model):
     def __str__(self):
         return self.human_name
 
-class Job(models.Model):
+    # If the setup_script or required_packages are changed... THEN flip the model to locked as the installers
+    # need to actually setup the script.
+    def save(self, *args, **kwargs):
 
+        # if this is an existing model... check for changes to setup_script or required_packages
+        if self.pk:
+
+            orig = PythonScript.objects.get(pk=self.pk)
+            if self.required_packages != "" and self.required_packages != orig.required_packages or \
+                self.setup_script != "" and self.setup_script != orig.setup_script or \
+                self.env_variables != "" and self.env_variables != orig.env_variables:
+                self.locked = True
+
+            if self.required_packages == "" and self.setup_script == "" and self.env_variables == "":
+                self.locked = False
+
+        # If this is a new model (and there is no pk yet), then, if there is any text at all for packages or setup)
+        # lock the model
+        else:
+
+            if self.required_packages or self.setup_script:
+                self.locked = True
+
+        super(PythonScript, self).save(*args, **kwargs)
+
+
+class Job(models.Model):
     # Script enumerations for type (ready for deployment vs test)
     TEST = 'TEST'
     PRODUCTION = 'PRODUCTION'
@@ -186,7 +211,7 @@ class Job(models.Model):
         default=1
     )
 
-    #Which line to use?
+    # Which line to use?
     pipeline = models.ForeignKey("Pipeline", on_delete=models.SET_NULL, null=True)
 
     # Control variables
@@ -200,7 +225,7 @@ class Job(models.Model):
     stop_time = models.DateTimeField("Step Stop Date and Time", blank=True, null=True)
 
     # API Integration values
-    callback = models.TextField("Callback URL", default="", blank=True,)
+    callback = models.TextField("Callback URL", default="", blank=True, )
 
     # Data variables
     job_inputs = models.TextField("Input Json", blank=True, default="")
@@ -238,12 +263,12 @@ def digraph_jsonfield_default_value():  # This is a callable
         "links": []
     }
 
-class Pipeline(models.Model):
 
+class Pipeline(models.Model):
     name = models.CharField("Pipeline Name", max_length=512, default="Line Name", blank=False)
     description = models.TextField("Pipeline Description", default="", blank=True)
     production = models.BooleanField("Available in Production", default=False, blank=True)
-    locked=models.BooleanField("Object locked (backend performing updates)...", default=False, blank=True)
+    locked = models.BooleanField("Object locked (backend performing updates)...", default=False, blank=True)
 
     owner = models.ForeignKey(
         get_user_model(),
@@ -268,17 +293,49 @@ class Pipeline(models.Model):
 
     def save(self, *args, **kwargs):
 
-        # If this is a new model, create the root node (the relationship to which can't be changed via the serializers,
-        # though the node itself can be modified):
-        #
-        # How to tell if save is new save or update (apparently it's not well-documented):
-        # https://stackoverflow.com/questions/907695/in-a-django-model-custom-save-method-how-should-you-identify-a-new-object
-        if self._state.adding:
+        # When existing pipeline's view port is offset, inject the new coordinates into the digraph.
+        # Run synchronously as this should be pretty fast and we don't want race condition occurring where
+        # user updates position requests new position and then DRF fetches pre-updated version and returns
+        # out of date position
+
+        if self.pk:
+
+            orig = Pipeline.objects.get(pk=self.pk)
+
+            moved = False
+            digraph = {**orig.digraph}
+
+            if orig.scale != self.scale:
+                print(f"Pipeline ID #{self.pk} scale has changed! Updating digraph")
+                digraph['scale'] = self.scale
+                moved = True
+
+            if orig.x_offset != self.x_offset:
+                print(f"Pipeline ID #{self.pk} x has been moved to {self.x_offset}. Updating digraph.")
+                digraph['offset']['x'] = self.x_offset
+                moved = True
+
+            if orig.y_offset != self.y_offset:
+                print(f"Pipeline ID #{self.pk} y has been moved to {self.y_offset}. Updating digraph.")
+                digraph['offset']['y'] = self.y_offset
+                moved = True
+
+            if moved:
+                print("Digraph has been updated...")
+                self.digraph = digraph
+
+            super(Pipeline, self).save(*args, **kwargs)
+
+        else:
+
+            # If this is a new model, create the root node (the relationship to which can't be changed via the serializers,
+            # though the node itself can be modified):
+            # How to tell if save is new save or update (apparently it's not well-documented):
+            # https://stackoverflow.com/questions/907695/in-a-django-model-custom-save-method-how-should-you-identify-a-new-object
 
             # If this is a new pipeline, create the root node.
             # Once we switch to the new node and edge architecture, there will be no need to create or manage
             # "step_number" value...
-
             super(Pipeline, self).save(*args, **kwargs)
 
             # TODO - changes to or creation of related models should happen in signals... changes to THIS model happen in save
@@ -293,32 +350,10 @@ class Pipeline(models.Model):
 
             # Link the new root_node type node to the root_node of the pipeline that's being created
             self.root_node = root
-
             self.save()
 
-        # When existing pipeline's view port is offset, inject the new coordinates into the digraph.
-        # Run synchronously as this should be pretty fast and we don't want race condition occurring where
-        # user updates position requests new position and then DRF fetches pre-updated version and returns
-        # out of date position
-        else:
-
-            if self.pk is not None:
-
-                orig = Pipeline.objects.get(pk=self.pk)
-
-                if orig.x_offset != self.x_offset or orig.y_offset != self.y_offset:
-                    print(f"Pipeline ID #{self.pk} has been moved! Updating digraph.")
-
-                    digraph = {**orig.digraph}
-                    digraph['offset']['x'] = self.x_offset
-                    digraph['offset']['y'] = self.y_offset
-
-                    self.digraph = digraph
-
-        super(Pipeline, self).save(*args, **kwargs)
 
 class PipelineNode(models.Model):
-
     ### CONSTRAINTS ################################################################################
 
     # This lets you create a unique constraint as a combination of fields, such as, for example,
@@ -328,7 +363,7 @@ class PipelineNode(models.Model):
     ]
 
     ### FIELDS #####################################################################################
-    #What is the control job and what is the python scripy
+    # What is the control job and what is the python scripy
     script = models.ForeignKey(PythonScript, on_delete=models.SET_NULL, blank=True, null=True)
 
     # Node Type Choices
@@ -362,7 +397,7 @@ class PipelineNode(models.Model):
         default=1
     )
 
-    locked=models.BooleanField("Object locked (backend performing updates)...", default=False, blank=True)
+    locked = models.BooleanField("Object locked (backend performing updates)...", default=False, blank=True)
 
     # Mapping script... will be use to transform data coming into the script. Helpful in building pipelines where
     # you probably want to transform input data.
@@ -385,10 +420,31 @@ class PipelineNode(models.Model):
     def __str__(self):
         return self.name
 
+    def save(self, *args, **kwargs):
+
+        # When digraph node *position* is updated, inject the new coordinates into the digraph.
+        # Run synchronously as this should be pretty fast
+        if self.pk is not None:
+
+            orig = PipelineNode.objects.select_related('parent_pipeline').get(pk=self.pk)
+            pipeline = orig.parent_pipeline
+
+            if orig.x_coord != self.x_coord or orig.y_coord != self.y_coord:
+                print(f"Pipeline Node ID #{self.pk} has been moved! Updating parent_pipeline digraph.")
+
+                digraph = {**pipeline.digraph}
+                digraph['nodes'][f'{self.pk}']['position']['x'] = self.x_coord
+                digraph['nodes'][f'{self.pk}']['position']['y'] = self.y_coord
+                pipeline.digraph = digraph
+                pipeline.save()
+
+                print("Node's parent pipeline digraph updated and saved.")
+
+        super(PipelineNode, self).save(*args, **kwargs)
+
 
 # Models connection between pipelinenodes (nodes)
 class Edge(models.Model):
-
     owner = models.ForeignKey(
         get_user_model(),
         on_delete=models.CASCADE,
@@ -399,11 +455,12 @@ class Edge(models.Model):
     start_node = models.ForeignKey(PipelineNode, null=True, related_name='out_edges', on_delete=models.CASCADE)
     end_node = models.ForeignKey(PipelineNode, null=True, related_name='in_edges', on_delete=models.CASCADE)
     transform_script = models.TextField("Data Transform Script", blank=True, default="")
-    parent_pipeline = models.ForeignKey(Pipeline, null=True, blank=False, related_name='pipeline_edges', on_delete=models.CASCADE)
-    locked=models.BooleanField("Object locked (backend performing updates)...", default=False, blank=True)
+    parent_pipeline = models.ForeignKey(Pipeline, null=True, blank=False, related_name='pipeline_edges',
+                                        on_delete=models.CASCADE)
+    locked = models.BooleanField("Object locked (backend performing updates)...", default=False, blank=True)
+
 
 class Document(models.Model):
-
     owner = models.ForeignKey(
         get_user_model(),
         on_delete=models.CASCADE,
@@ -418,9 +475,9 @@ class Document(models.Model):
     extracted = models.BooleanField("Extracted Successfully", default=False)
     job = models.ForeignKey(Job, null=True, on_delete=models.CASCADE)
 
-    #don't want to return shortText by default as it can go on for a looooong, loooong time.
+    # don't want to return shortText by default as it can go on for a looooong, loooong time.
     def shortText(self):
-        return self.rawText[0:199] if (self.rawText and len(self.rawText)>200) else self.rawText
+        return self.rawText[0:199] if (self.rawText and len(self.rawText) > 200) else self.rawText
 
     def __str__(self):
         return self.name
@@ -436,8 +493,8 @@ class Document(models.Model):
 
         super(Document, self).save(*args, **kwargs)
 
-class Result(models.Model):
 
+class Result(models.Model):
     # Enumerations for type (ready for deployment vs test)
     DOC = 'DOC'
     STEP = 'STEP'
@@ -481,7 +538,7 @@ class Result(models.Model):
     transformed_input_data = models.TextField("Transformed Input Json Data", blank=True, default="{}")
 
     # Data Inputs
-    input_settings = models.TextField("Input Settings", blank=True, default="{}") # what input_setting were passed in
+    input_settings = models.TextField("Input Settings", blank=True, default="{}")  # what input_setting were passed in
     raw_input_data = models.TextField("Raw Input Json Data", blank=True, default="{}")
 
     # Data Outputs

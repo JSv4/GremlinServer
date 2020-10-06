@@ -4,8 +4,8 @@ import operator
 from django.db import transaction
 
 from .tasks.task_helpers import buildNodePipelineRecursively
-from .tasks.tasks import runJob, installPackages, runPythonScriptSetup, extractTextForDoc, \
-    runScriptEnvVarIntaller, runScriptPackageInstaller, runScriptSetupScript, recalculatePipelineDigraph
+from .tasks.tasks import runJob, runPythonScriptSetup, extractTextForDoc, \
+    runScriptEnvVarInstaller, runScriptPackageInstaller, recalculatePipelineDigraph, unlockScript
 from .models import PipelineNode, Pipeline, PythonScript, Edge
 
 # Excellent django logging guidance here: https://docs.python.org/3/howto/logging-cookbook.html
@@ -32,9 +32,8 @@ def process_doc_on_create_atomic(sender, instance, created, **kwargs):
 # this on the backend in response to changes could lead to data getting out of sync... Can trying to remedy this later
 # if it becomes an issue.
 def update_pipeline_schema(sender, instance, **kwargs):
-
     print(f"Got signal to update pipeline schema for sender type {sender} and instance ID #{instance.id}. "
-                f"kwargs are {kwargs}")
+          f"kwargs are {kwargs}")
 
     try:
 
@@ -148,71 +147,90 @@ def update_pipeline_schema(sender, instance, **kwargs):
 
 # When a new script is created... perform required setup (if there are values that require setup)
 def setup_python_script_on_create(sender, instance, created, **kwargs):
-
     if created and not instance.locked:
 
-        instance.locked=True
+        instance.locked = True
         instance.save()
 
         # if there is a list of required packages, add a job to install them
         if not instance.required_packages == "":
-            runScriptPackageInstaller.delay(scriptId = instance.id)
+            runScriptPackageInstaller.delay(scriptId=instance.id)
 
         if not instance.setup_script == "":
-            runPythonScriptSetup.delay(scriptId = instance.id)
+            runPythonScriptSetup.delay(scriptId=instance.id)
 
         if not instance.env_variables == "":
-            runScriptEnvVarIntaller.delay(scriptId = instance.id)
+            runScriptEnvVarInstaller.delay(scriptId=instance.id)
 
-        instance.locked=False
+        instance.locked = False
         instance.save()
+
 
 # When a python script is updated... save the updated code and, if necessary, run the installer.
 def update_python_script_on_save(sender, instance, **kwargs):
+    # print("Got request to update_python_script_on_save")
+    try:
 
-    if not instance.locked:
-        try:
-            obj = sender.objects.get(pk=instance.pk)
+        orig = sender.objects.get(pk=instance.pk)
 
-            # Required package field has changed, try to install new packages.
-            if not obj.required_packages == instance.required_packages:
-                print("Python script updated... running install script.")
+        # print("See if setup script, packages or env_variables changed and, *only* if so, run setups script")
+        #
+        # print("Old setup_script")
+        # print(orig.setup_script)
+        # print("New setup_script")
+        # print(instance.setup_script)
+        #
+        # print("Old required packages")
+        # print(orig.required_packages)
+        # print("New required packages")
+        # print(instance.required_packages)
+        #
+        # print("Old env variables")
+        # print(orig.env_variables)
+        # print("New env variables")
+        # print(instance.env_variables)
 
-                # if there is a list of required packages, add a job to install them
-                if not instance.required_packages == "":
-                    runScriptPackageInstaller.delay(scriptId=instance.id)
+        celery_jobs = []
 
-            if not obj.setup_script == instance.setup_script:
-                print("Install script updated... running install script.")
+        if orig.required_packages != instance.required_packages and instance.required_packages != "":
+            print("Required packages updated AND new package list is not blank")
+            celery_jobs.append(runScriptPackageInstaller.s(scriptId=instance.id,
+                                                           new_packages=instance.required_packages))
 
-                if not instance.setup_script == "":
-                    runPythonScriptSetup.delay(scriptId=instance.id)
+        if orig.setup_script != instance.setup_script and instance.setup_script != "":
+            print("Setup script updated AND new script is not blank")
+            celery_jobs.append(runPythonScriptSetup.s(scriptId=instance.id,
+                                                      setup_script=instance.setup_script))
 
-            if not obj.env_variables == instance.env_variables:
-                print("Env variables updated... ")
+        if orig.env_variables != instance.env_variables and instance.env_variables != "":
+            print("Env variables updated AND new variables are not blank")
+            celery_jobs.append(runScriptEnvVarInstaller.delay(scriptId=instance.id,
+                                                              env_variables=instance.env_variables))
 
-                if not instance.env_variables == "":
-                    runScriptEnvVarIntaller.delay(scriptId=instance.id)
+        if len(celery_jobs) > 0:
 
-        except sender.DoesNotExist:
-            pass
+            print("There are long-running installer tasks:")
+            print(celery_jobs)
 
-    else:
-        print(f"Python script {instance} is locked.")
+            celery_jobs.append(unlockScript.s(scriptId=instance.id))
+            chain(celery_jobs).apply_async()
+
+    except sender.DoesNotExist:
+        pass
+
 
 # When a digraph edge is updated... rerender the digraph property... which is a react flowchart compatible JSON structure
 # That shows the digraph structure of the job... everything is keyed off of it.
 # TODO - what happens if you try to edit multiple nodes at the same time? THIS IS NOT ALLOWED. SIMPLE
 #  Or you have this operation pending while editing an edge...? Need to think about how to handle this.
 def update_digraph_on_edge_change(sender, instance, **kwargs):
-
     if not instance.locked:
-        recalculatePipelineDigraph.delay(pipelineId=instance.parent_pipeline.id) #TODO - make sure
+        recalculatePipelineDigraph.delay(pipelineId=instance.parent_pipeline.id)  # TODO - make sure
+
 
 # When a node is created... rerender the parent_pipeline digraph property... e
 # That shows the digraph structure of the job... everything is keyed off of it.
 def update_digraph_on_node_create(sender, instance, created, **kwargs):
-
     if created and not instance.parent_pipeline.locked if instance.parent_pipeline else False:
         print("Node was created... try to update parent_pipeline digraph")
         recalculatePipelineDigraph.delay(pipelineId=instance.parent_pipeline.id)
@@ -223,32 +241,3 @@ def update_digraph_on_node_create(sender, instance, created, **kwargs):
 def update_digraph_on_node_delete(sender, instance, **kwargs):
     print("Node was deleted... try to update parent_pipeline digraph")
     recalculatePipelineDigraph.delay(pipelineId=instance.parent_pipeline.id)
-
-
-# When digraph node *position* is updated, inject the new coordinates into the digraph.
-# Run synchronously as this should be pretty fast and we don't want race condition occuring where user updates position
-# requests new position and then DRF fetches pre-updated version and returns out of date position
-# When a python script is updated... save the updated code and, if necessary, run the installer.
-def update_digraph_position_on_node_change(sender, instance, **kwargs):
-
-    print("Check changes to digraph node positions...")
-
-    try:
-        obj = sender.objects.get(pk=instance.pk)
-
-        # Required package field has changed, try to install new packages.
-        if not obj.x_coord == instance.x_coord or not obj.y_coord == obj.y_coord:
-
-            print(f"Node ID #{obj.pk} has been moved! Updating digraph.")
-
-            pipeline = obj.parent_pipeline
-            digraph = {**pipeline.digraph}
-            digraph['nodes'][f'{obj.pk}']['position']['x'] = obj.x_coord
-            digraph['nodes'][f'{obj.pk}']['position']['y'] = obj.y_coord
-            pipeline.digraph = digraph
-            pipeline.save()
-
-            print("Digraph updated with new positions...")
-
-    except sender.DoesNotExist:
-        pass

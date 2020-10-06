@@ -71,8 +71,9 @@ class PythonScriptSerializer(serializers.ModelSerializer):
             'env_variables',
             'installer_log',
             'setup_log',
+            'locked'
         ]
-        read_only_fields = ['id', 'setup_log', 'owner']
+        read_only_fields = ['id', 'setup_log', 'owner', 'locked']
 
 class PythonScriptSummarySerializer_READ_ONLY(serializers.ModelSerializer):
 
@@ -91,6 +92,7 @@ class PythonScriptSummarySerializer_READ_ONLY(serializers.ModelSerializer):
             'supported_file_types',
             'description',
             'mode',
+            'locked',
             'owner'
         ]
         fields = [
@@ -101,6 +103,7 @@ class PythonScriptSummarySerializer_READ_ONLY(serializers.ModelSerializer):
             'supported_file_types',
             'description',
             'mode',
+            'locked',
             'owner'
         ]
 
@@ -121,9 +124,10 @@ class PythonScriptSummarySerializer(serializers.ModelSerializer):
             'supported_file_types',
             'description',
             'mode',
+            'locked',
             'owner'
         ]
-        read_only_fields = ['id', 'owner']
+        read_only_fields = ['id', 'owner', 'locked']
 
 
 class DocumentSerializer(serializers.ModelSerializer):
@@ -149,9 +153,9 @@ class PipelineSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Pipeline
-        fields = ['id', 'name', 'schema', 'description', 'total_steps', 'owner', 'production',
+        fields = ['id', 'name', 'schema', 'description', 'total_steps', 'owner', 'production', 'locked',
                   'supported_files', 'root_node', 'scale','x_offset', 'y_offset']
-        read_only_fields = ['id', 'total_steps', 'schema', 'owner', 'supported_files', 'root_node']
+        read_only_fields = ['id', 'total_steps', 'schema', 'owner', 'supported_files', 'root_node', 'locked']
 
 class PipelineSerializer_READONLY(serializers.ModelSerializer):
 
@@ -160,9 +164,9 @@ class PipelineSerializer_READONLY(serializers.ModelSerializer):
 
     class Meta:
         model = Pipeline
-        fields = ['id', 'name', 'schema', 'description', 'total_steps', 'owner', 'production',
+        fields = ['id', 'name', 'schema', 'description', 'total_steps', 'owner', 'production', 'locked',
                   'supported_files', 'root_node', 'scale','x_offset', 'y_offset']
-        read_only_fields = ['id', 'name', 'schema', 'description', 'total_steps', 'owner',
+        read_only_fields = ['id', 'name', 'schema', 'description', 'total_steps', 'owner', 'locked'
                             'production', 'supported_files', 'root_node', 'scale','x_offset', 'y_offset']
 
 
