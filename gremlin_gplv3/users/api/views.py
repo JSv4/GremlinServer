@@ -15,8 +15,7 @@ from .serializers import UserSerializer, SimpleUserSerializer
 
 User = get_user_model()
 
-# Write-Only Permissions on Script, Pipeline and PipelineStep for users with
-# role = LAWYER
+# Permission class only gives access to admin or legal engineers
 class AdminAccessOnly(BasePermission):
 
     """

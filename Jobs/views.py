@@ -32,6 +32,7 @@ from Jobs import serializers
 from Jobs.ImportExportUtils import exportScriptYAMLObj, exportPipelineNodeToYAMLObj, \
     exportPipelineEdgeToYAMLObj, exportPipelineToYAMLObj, importPipelineFromYAML
 from Jobs.tasks.task_helpers import transformStepInputs
+from gremlin_gplv3.users.models import User
 from .models import Document, Job, Result, PythonScript, PipelineNode, Pipeline, TaskLogEntry, JobLogEntry, Edge
 from .paginations import MediumResultsSetPagination, LargeResultsSetPagination, SmallResultsSetPagination
 from .serializers import DocumentSerializer, JobSerializer, ResultSummarySerializer, PythonScriptSerializer, \
@@ -66,6 +67,15 @@ class WriteOnlyIfIsAdminOrEng(BasePermission):
             return True
         else:
             return request.method in ["GET", "HEAD", "OPTIONS"]
+
+# Permission class only gives access to admin or legal engineers
+class AdminOrLegalEngAccessOnly(BasePermission):
+
+    """
+    Allows access only to "ADMIN" users.
+    """
+    def has_permission(self, request, view):
+        return request.user.role == User.LEGAL_ENG or request.user.role == User.ADMIN
 
 # From here: https://stackoverflow.com/questions/38697529/how-to-return-generated-file-download-with-django-rest-framework
 class PassthroughRenderer(renderers.BaseRenderer):
@@ -574,7 +584,7 @@ class PythonScriptViewSet(viewsets.ModelViewSet):
                 script = PythonScript.objects.get(id=pk)
                 script.__dict__.update(scriptData)
                 script.save()
-                return Response(serializer.data)
+                return Response(PythonScriptSerializer(script).data)
             else:
                 return Response(status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
@@ -1007,3 +1017,39 @@ class EdgeViewSet(ListInputModelMixin, viewsets.ModelViewSet):
                             status=status.HTTP_400_BAD_REQUEST)
 
 
+class DashboardAggregatesViewSet(APIView):
+
+    allowed_methods = ['get']
+    permission_classes = [AdminOrLegalEngAccessOnly]
+
+    def get(self, request, format=None):
+
+        try:
+
+            user_count = User.objects.count()
+            doc_count = Document.objects.count()
+            parsed_doc_count = Document.objects.filter(extracted=True).count()
+            queued_job_count = Job.objects.filter(queued=True).count()
+            running_job_count = Job.objects.filter(error=False, started=True, finished=False).count()
+            error_job_count = Job.objects.filter(error=True).count()
+            script_count = PythonScript.objects.count()
+            pipeline_count = Pipeline.objects.count()
+
+            aggregates = {
+                "user_count": user_count,
+                "doc_count": doc_count,
+                "parsed_doc_count": parsed_doc_count,
+                "queued_job_count": queued_job_count,
+                "running_job_count": running_job_count,
+                "error_job_count": error_job_count,
+                "script_count": script_count,
+                "pipeline_count": pipeline_count
+            }
+
+            return JsonResponse(aggregates, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            print("Something went wrong trying to prepare aggregates.")
+            print(e)
+            return Response(e,
+                            status=status.HTTP_500_INTERNAL_SERVER_ERROR)

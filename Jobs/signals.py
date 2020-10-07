@@ -173,23 +173,6 @@ def update_python_script_on_save(sender, instance, **kwargs):
 
         orig = sender.objects.get(pk=instance.pk)
 
-        # print("See if setup script, packages or env_variables changed and, *only* if so, run setups script")
-        #
-        # print("Old setup_script")
-        # print(orig.setup_script)
-        # print("New setup_script")
-        # print(instance.setup_script)
-        #
-        # print("Old required packages")
-        # print(orig.required_packages)
-        # print("New required packages")
-        # print(instance.required_packages)
-        #
-        # print("Old env variables")
-        # print(orig.env_variables)
-        # print("New env variables")
-        # print(instance.env_variables)
-
         celery_jobs = []
 
         if orig.required_packages != instance.required_packages and instance.required_packages != "":

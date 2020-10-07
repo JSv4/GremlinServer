@@ -1434,7 +1434,8 @@ def runPythonScriptSetup(*args, scriptId=-1, setup_script=None, **kwargs):
             log.writelines("\nSuccess:\n" + out + "\nErrors:\n" + err)
 
         script = PythonScript.objects.get(id=scriptId)
-        script.setup_log = script.setup_log + "\n\n" + log.getvalue()
+        script.setup_log = log.getvalue()
+        script.setup_script = setup_script
         script.save()
 
         returnMessage = "{0} - Package install: {1}".format(JOB_SUCCESS, out)

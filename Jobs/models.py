@@ -175,7 +175,7 @@ class PythonScript(models.Model):
         # lock the model
         else:
 
-            if self.required_packages or self.setup_script:
+            if self.required_packages or self.setup_script or self.env_variables:
                 self.locked = True
 
         super(PythonScript, self).save(*args, **kwargs)
