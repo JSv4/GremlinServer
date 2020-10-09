@@ -1,3 +1,5 @@
+from django.contrib.postgres.indexes import GinIndex
+from django.contrib.postgres.search import SearchVectorField
 from django.contrib.auth.models import AbstractUser
 from django.db.models import CharField, EmailField
 from django.urls import reverse
@@ -10,8 +12,10 @@ class User(AbstractUser):
     LAWYER = "LAWYER"
     LEGAL_ENG = 'LEGAL_ENG'
     ADMIN = 'ADMIN'
+    VIEWONLY = 'VIEWONLY'
 
     USER_ROLE = [
+        (VIEWONLY, _('View Only')),
         (LAWYER, _('Lawyer')),
         (LEGAL_ENG, _('Legal Engineer')),
         (ADMIN, _('All Privileges (Dangerous!)')),
@@ -33,5 +37,17 @@ class User(AbstractUser):
         default=LAWYER,
     )
 
+    # Some tips on how to setup postgres indexing: http://rubyjacket.com/build/django-psql-fts.html
+    email_vector = SearchVectorField(null=True)
+    name_vector = SearchVectorField(null=True)
+    username_vector = SearchVectorField(null=True)
+
     def get_absolute_url(self):
         return reverse("users:detail", kwargs={"username": self.username})
+
+    class Meta:
+        indexes = [GinIndex(fields=[
+            'email_vector',
+            'name_vector',
+            'username_vector',
+        ])]

@@ -1,6 +1,10 @@
 import secrets
+
+import psycopg2
 from django.contrib.auth import get_user_model
+from django.db import IntegrityError
 from django.http import JsonResponse
+from django_filters import rest_framework as filters
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.mixins import ListModelMixin, RetrieveModelMixin, UpdateModelMixin
@@ -8,6 +12,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.viewsets import GenericViewSet, ModelViewSet
 from rest_framework.permissions import IsAuthenticated, BasePermission, AllowAny
+
+from gremlin_gplv3.utils.filters import UserFilter
 from ..paginations import MediumResultsSetPagination
 from ..InvitationEmails import SendInviteEmail, SendResetPasswordEmail, SendUsernameEmail
 
@@ -46,6 +52,8 @@ class AllUserViewSet(ModelViewSet):
     serializer_class = SimpleUserSerializer
     queryset = User.objects.all()
     pagination_class = MediumResultsSetPagination
+    filter_backends = (filters.DjangoFilterBackend,)
+    filterset_class = UserFilter
     permission_classes = [AdminAccessOnly]
 
     # Override certain viewset actions to disable them
@@ -213,8 +221,10 @@ class InviteUserViewSet(APIView):
 
             return response
 
-        except Exception as e:
-            print("Exception encountered: ")
-            print(e)
-            return Response(e,
-                            status=status.HTTP_400_BAD_REQUEST)
+        except IntegrityError as e:
+            return JsonResponse({'message': e.args[0]},
+                            status=status.HTTP_409_CONFLICT)
+
+        except Exception as ge:
+            return JsonResponse({'message': ge.__cause__},
+                                status=status.HTTP_500_INTERNAL_SERVER_ERROR)
