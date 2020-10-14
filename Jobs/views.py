@@ -33,12 +33,14 @@ from Jobs.ImportExportUtils import exportScriptYAMLObj, exportPipelineNodeToYAML
     exportPipelineEdgeToYAMLObj, exportPipelineToYAMLObj, importPipelineFromYAML
 from Jobs.tasks.task_helpers import transformStepInputs
 from gremlin_gplv3.users.models import User
+from gremlin_gplv3.utils.filters import PipelineFilter, JobFilter
 from .models import Document, Job, Result, PythonScript, PipelineNode, Pipeline, TaskLogEntry, JobLogEntry, Edge
 from .paginations import MediumResultsSetPagination, LargeResultsSetPagination, SmallResultsSetPagination
 from .serializers import DocumentSerializer, JobSerializer, ResultSummarySerializer, PythonScriptSerializer, \
     PipelineSerializer, PipelineStepSerializer, PythonScriptSummarySerializer, LogSerializer, ResultSerializer, \
     PythonScriptSummarySerializer, PipelineSerializer, PipelineStepSerializer, \
-    ProjectSerializer, Full_PipelineSerializer, Full_PipelineStepSerializer, EdgeSerializer
+    ProjectSerializer, Full_PipelineSerializer, Full_PipelineStepSerializer, EdgeSerializer, PipelineSummarySerializer, \
+    JobPageSerializer
 from .tasks.tasks import runJob, recalculatePipelineDigraph, runJobToNode
 
 mimetypes.init()
@@ -57,7 +59,7 @@ LOG_LEVELS = {
 
 # Write-Only Permissions on Script, Pipeline and PipelineStep for users with
 # role = LAWYER
-class WriteOnlyIfIsAdminOrEng(BasePermission):
+class WriteOnlyIfNotAdminOrEng(BasePermission):
 
     """
     Allows write access only to "ADMIN" or "LEGAL_ENG" users.
@@ -67,6 +69,7 @@ class WriteOnlyIfIsAdminOrEng(BasePermission):
             return True
         else:
             return request.method in ["GET", "HEAD", "OPTIONS"]
+
 
 # Permission class only gives access to admin or legal engineers
 class AdminOrLegalEngAccessOnly(BasePermission):
@@ -257,8 +260,42 @@ class ProjectViewSet(GenericAPIView):
             return Response(serializer.data, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_401_UNAUTHORIZED)
 
+class PaginatedJobViewSet(viewsets.ModelViewSet):
 
-class JobViewSet(viewsets.ModelViewSet):
+    queryset = Job.objects.annotate(num_docs=Count('document')).select_related('owner', 'pipeline').all().order_by(
+        '-name')
+    pagination_class = MediumResultsSetPagination
+    serializer_class = JobPageSerializer
+    permission_classes = [IsAuthenticated]
+    filterset_class= JobFilter
+
+    def get_queryset(self, *args, **kwargs):
+        # for legal engineers and lawyers, don't show them jobs or docs that don't belong to them.
+        if self.request.user.role == "LEGAL_ENG" or self.request.user.role == "LAWYER":
+            return self.queryset.filter(owner=self.request.user.id)
+        else:
+            return self.queryset
+
+    # Super useful docs on routing (unsurprisingly): https://www.django-rest-framework.org/api-guide/routers/
+    # Also, seems like there's a cleaner way to do this? Working for now but I don't like it doesn't integrate with Django filters.
+    @action(methods=['get'], detail=True, renderer_classes=(PassthroughRenderer,))
+    def download(self, request, pk=None):
+
+        job = Job.objects.filter(pk=pk)[0]
+
+        # get an open file handle (I'm just using a file attached to the model for this example):
+        file_handle = job.file.open()
+
+        # send file
+        filename, file_extension = os.path.splitext(job.file.name)
+        response = FileResponse(file_handle)
+        response['Content-Length'] = job.file.size
+        response['Content-Disposition'] = 'attachment; filename="%s"' % os.path.basename(job.file.name)
+        response['Filename'] = os.path.basename(job.file.name)
+
+        return response
+
+class AllJobViewSet(viewsets.ModelViewSet):
 
     queryset = Job.objects.annotate(num_docs=Count('document')).select_related('owner', 'pipeline').all().order_by(
         '-name')
@@ -356,7 +393,6 @@ class JobViewSet(viewsets.ModelViewSet):
 
         # send file
         filename, file_extension = os.path.splitext(job.file.name)
-        mimetype = mimetypes.types_map[file_extension]
         response = FileResponse(file_handle)
         response['Content-Length'] = job.file.size
         response['Content-Disposition'] = 'attachment; filename="%s"' % os.path.basename(job.file.name)
@@ -532,7 +568,7 @@ class PythonScriptViewSet(viewsets.ModelViewSet):
 
     pagination_class = None
     serializer_class = PythonScriptSummarySerializer
-    permission_classes = [IsAuthenticated & WriteOnlyIfIsAdminOrEng]
+    permission_classes = [IsAuthenticated & WriteOnlyIfNotAdminOrEng]
 
     # I want to use different serializer for create vs other actions.
     # Based on the guidance here:https://stackoverflow.com/questions/22616973/django-rest-framework-use-different-serializers-in-the-same-modelviewset
@@ -668,7 +704,7 @@ class PythonScriptViewSet(viewsets.ModelViewSet):
 
 class UploadPipelineViewSet(APIView):
     allowed_methods = ['post']
-    permission_classes = [IsAuthenticated & WriteOnlyIfIsAdminOrEng]
+    permission_classes = [IsAuthenticated & WriteOnlyIfNotAdminOrEng]
     parser_classes = [MultiPartParser]
 
     def post(self, request, format=None):
@@ -702,7 +738,7 @@ class UploadPipelineViewSet(APIView):
 class UploadScriptViewSet(APIView):
 
     allowed_methods = ['post']
-    permission_classes = [IsAuthenticated & WriteOnlyIfIsAdminOrEng]
+    permission_classes = [IsAuthenticated & WriteOnlyIfNotAdminOrEng]
     parser_classes = [FileUploadParser]
 
     def post(self, request, format=None):
@@ -800,16 +836,27 @@ class UploadScriptViewSet(APIView):
                             status=status.HTTP_400_BAD_REQUEST)
 
 
+class PipelineSummaryViewSet(viewsets.ModelViewSet):
+    serializer_class = PipelineSummarySerializer
+    queryset = Pipeline.objects.prefetch_related('owner', Prefetch('pipelinenodes',
+                                                                   queryset=PipelineNode.objects.order_by(
+                                                                       '-step_number'))).all().order_by('-name')
+    filter_fields = ['id', 'name', 'production']
+
+    pagination_class = SmallResultsSetPagination
+    permission_classes = [IsAuthenticated & WriteOnlyIfNotAdminOrEng]
+    filterset_class= PipelineFilter
+
 class PipelineViewSet(viewsets.ModelViewSet):
     # You can sort the nested objects if you want when you prefetch them. You can also presort them at serialization time
     # Went with the former approach. See more here: https://stackoverflow.com/questions/48247490/django-rest-framework-nested-serializer-order/48249910
-    queryset = Pipeline.objects.prefetch_related('owner', Prefetch('pipelinenodes',
-                queryset=PipelineNode.objects.order_by('-step_number'))).all().order_by('-name')
+    queryset = Pipeline.objects.prefetch_related('owner').all().order_by('-name')
     filter_fields = ['id', 'name', 'production']
 
-    pagination_class = None
-    serializer_class = Full_PipelineSerializer
-    permission_classes = [IsAuthenticated & WriteOnlyIfIsAdminOrEng]
+    pagination_class = SmallResultsSetPagination
+    permission_classes = [IsAuthenticated & WriteOnlyIfNotAdminOrEng]
+    filterset_class = PipelineFilter
+    serializer_class = PipelineSummarySerializer #Was Full_PipelineSerializer... This shouldn't be happening, no? We fetch pipeline data as needed.
 
     # Clears any existing test jobs and creates a new one.
     # Clears any existing test jobs and creates a new one.
@@ -918,7 +965,7 @@ class PipelineStepViewSet(ListInputModelMixin, viewsets.ModelViewSet):
 
     pagination_class = None
     serializer_class = Full_PipelineStepSerializer
-    permission_classes = [IsAuthenticated & WriteOnlyIfIsAdminOrEng]
+    permission_classes = [IsAuthenticated & WriteOnlyIfNotAdminOrEng]
 
     @action(methods=['get'], detail=True, url_name='JobLogs', url_path='JobLogs/(?P<job_id>[0-9]+)')
     def logs(self, request, pk=None, job_id=None):
@@ -997,7 +1044,7 @@ class EdgeViewSet(ListInputModelMixin, viewsets.ModelViewSet):
 
     pagination_class = None
     serializer_class = EdgeSerializer
-    permission_classes = [IsAuthenticated & WriteOnlyIfIsAdminOrEng]
+    permission_classes = [IsAuthenticated & WriteOnlyIfNotAdminOrEng]
 
     # Export script as YAML
     @action(methods=['get'], detail=True)

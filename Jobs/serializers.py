@@ -189,6 +189,27 @@ class JobSerializer(serializers.ModelSerializer):
                             'status', 'start_time', 'stop_time', 'file','completed_tasks','task_count', 'type',
                             'owner', 'num_docs']
 
+class JobPageSerializer(serializers.ModelSerializer):
+
+    owner = serializers.HiddenField(
+        default=serializers.CurrentUserDefault()
+    )
+    pipeline_description = serializers.ReadOnlyField(source='pipeline.description')
+    pipeline_name = serializers.ReadOnlyField(source='pipeline.name')
+    num_docs = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = Job
+
+        fields = ['id', 'name', 'creation_time', 'pipeline_name', 'pipeline_description', 'queued', 'started',
+                  'error', 'finished', 'status', 'start_time', 'stop_time', 'job_inputs', 'file',
+                  'completed_tasks','task_count', 'type', 'owner', 'num_docs']
+
+        read_only_fields = ['id', 'creation_time', 'started', 'error', 'finished', 'pipeline_name', 'pipeline_description',
+                            'status', 'start_time', 'stop_time', 'file','completed_tasks','task_count', 'type',
+                            'owner', 'num_docs']
+
+
 class EdgeSerializer(serializers.ModelSerializer):
 
     owner = serializers.HiddenField(
@@ -244,6 +265,16 @@ class Full_PipelineStepSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'owner']
         fields = ['id', 'type', 'name', 'parent_pipeline', 'script', 'step_settings',
                   'step_number', 'input_transform', 'owner', 'x_coord', 'y_coord']
+
+class PipelineSummarySerializer(serializers.ModelSerializer):
+
+    owner = serializers.ReadOnlyField(source='owner.username')
+    owner_email = serializers.ReadOnlyField(source='owner.email')
+
+    class Meta:
+        model = Pipeline
+        fields = ['id', 'name', 'description', 'total_steps', 'owner', 'owner_email', 'production', 'supported_files']
+        read_only_fields = ['id', 'total_steps', 'owner', 'owner_email']
 
 class Full_PipelineSerializer(serializers.ModelSerializer):
 

@@ -5,6 +5,43 @@ from django.db.models import F
 from django_filters import rest_framework as filters
 from django.contrib.postgres.search import SearchVector, SearchQuery, SearchRank, TrigramSimilarity
 from gremlin_gplv3.users.models import User
+from Jobs.models import Pipeline, Job
+
+class PipelineFilter(filters.FilterSet):
+    text_search = filters.CharFilter(method='filter_search')
+
+    def filter_search(self, queryset, name, value):
+
+        # combined earlier approaches using this great guide: http://rubyjacket.com/build/django-psql-fts.html
+        return queryset.annotate(rank=SearchRank(
+            SearchVector('name', 'description'),
+            SearchQuery(
+                value,
+                search_type="websearch",
+                config="english"
+            ))).order_by('-rank')
+
+    class Meta:
+        model = Pipeline
+        fields = ['text_search']  # 'fuzzy_text_search',
+
+
+class JobFilter(filters.FilterSet):
+    text_search = filters.CharFilter(method='filter_search')
+
+    def filter_search(self, queryset, name, value):
+        return queryset.annotate(rank=SearchRank(
+            SearchVector('name'),
+            SearchQuery(
+                value,
+                search_type="websearch",
+                config="english"
+            ))).order_by('-rank')
+
+    class Meta:
+        model = Job
+        fields = ['text_search', 'name', 'id', 'status', 'started', 'queued', 'finished', 'type']
+
 
 class UserFilter(filters.FilterSet):
     text_search = filters.CharFilter(method='filter_search')
@@ -40,4 +77,3 @@ class UserFilter(filters.FilterSet):
     class Meta:
         model = User
         fields = ['text_search', 'role'] #'fuzzy_text_search',
-

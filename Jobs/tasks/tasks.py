@@ -553,7 +553,7 @@ def runJobToNode(*args, jobId=-1, endNodeId=-1, **kwargs):
                 logger.info("Build root node celery instructions")
                 celery_jobs.append(createSharedResultForParallelExecution.si(jobId=jobId, stepId=node.id))
                 celery_jobs.append(chord(
-                    group([extractTextForDoc.s(docId=d.id) for d in jobDocs]),
+                    group([extractTextForDoc.si(docId=d.id) for d in jobDocs]),
                     resultsMerge.si(jobId=jobId, stepId=node.id)))
 
             # TODO - handle packaging step separately similar to the root_node above
@@ -597,6 +597,7 @@ def runJobToNode(*args, jobId=-1, endNodeId=-1, **kwargs):
 
 @celery_app.task(base=FaultTolerantTask, name="Run Job")
 def runJob(*args, jobId=-1, endStep=-1, **kwargs):
+
     try:
 
         if jobId == -1:
@@ -654,7 +655,7 @@ def runJob(*args, jobId=-1, endStep=-1, **kwargs):
                 logger.info("Build root node celery instructions")
                 celery_jobs.append(createSharedResultForParallelExecution.si(jobId=jobId, stepId=node.id))
                 celery_jobs.append(chord(
-                    group([extractTextForDoc.s(docId=d.id) for d in jobDocs]),
+                    group([extractTextForDoc.si(docId=d.id) for d in jobDocs]),
                     resultsMerge.si(jobId=jobId, stepId=node.id)))
 
             # TODO - handle packaging step separately similar to the root_node above
@@ -1466,7 +1467,7 @@ def createNewPythonPackage(*args, scriptId=-1, **kwargs):
 
 
 @celery_app.task(base=FaultTolerantTask, name="Extract Document Text")
-def extractTextForDoc(docId=-1):
+def extractTextForDoc(*args, docId=-1, **kwargs):
     logging.info(f"Try to extract doc for docId={docId}")
 
     if docId == -1:

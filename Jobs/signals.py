@@ -24,7 +24,7 @@ def run_job_on_queued(sender, instance, created, **kwargs):
 # https://stackoverflow.com/questions/45276828/handle-post-save-signal-in-celery
 def process_doc_on_create_atomic(sender, instance, created, **kwargs):
     if created:
-        transaction.on_commit(lambda: extractTextForDoc.delay(instance.id))
+        transaction.on_commit(lambda: extractTextForDoc.delay(docId=instance.id))
 
 
 # Updates the pipeline schema and the pipeline supported files when one of the linked scripts changes...
