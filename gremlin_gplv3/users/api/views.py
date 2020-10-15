@@ -1,6 +1,5 @@
 import secrets
 
-import psycopg2
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError
 from django.http import JsonResponse
@@ -15,7 +14,8 @@ from rest_framework.permissions import IsAuthenticated, BasePermission, AllowAny
 
 from gremlin_gplv3.utils.filters import UserFilter
 from ..paginations import MediumResultsSetPagination
-from ..InvitationEmails import SendInviteEmail, SendResetPasswordEmail, SendUsernameEmail
+from gremlin_gplv3.utils.emails import SendInviteEmail, SendResetPasswordEmail, SendUsernameEmail
+from gremlin_gplv3.users.models import User as CustomUser
 
 from .serializers import UserSerializer, SimpleUserSerializer
 
@@ -71,6 +71,28 @@ class AllUserViewSet(ModelViewSet):
     def partial_update(self, request, pk=None):
         response = {'message': 'Update function is not offered in this path.'}
         return Response(response, status=status.HTTP_403_FORBIDDEN)
+
+    # lets admin users elevate or demote other users.
+    @action(detail=True, methods=["PUT"])
+    def change_permissions(self, request, pk=None):
+        try:
+            user = User.objects.get(pk=pk)
+            new_role = request.data['role']
+            if new_role in [item[0] for item in CustomUser.USER_ROLE]:
+                if user.role==CustomUser.ADMIN:
+                    message = "ERROR - You cannot demote admins through this interface. " \
+                              "Use the Gremlin backend admin panel."
+                else:
+                    user.role = new_role
+                    user.save()
+                    return JsonResponse(self.get_serializer(user).data, status=status.HTTP_200_OK)
+            else:
+                message = f"ERROR - Role must be one of {CustomUser.USER_ROLE}"
+
+            return Response(message, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        except Exception as e:
+            return Response(f"Error: {e}", status=status.HTTP_500_INTERNAL_SERVER_ERROR,)
 
 class NewPasswordRequestViewSet(APIView):
 

@@ -1,4 +1,3 @@
-import io
 import json
 import logging
 from ruamel.yaml import YAML

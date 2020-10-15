@@ -1,6 +1,5 @@
 from celery import chain
 import json
-import operator
 from django.db import transaction
 
 from .tasks.task_helpers import buildNodePipelineRecursively

@@ -1,5 +1,3 @@
-from rest_framework_bulk import BulkSerializerMixin, BulkListSerializer
-
 from .models import Document, Job, Result, PythonScript, PipelineNode, \
     Pipeline, TaskLogEntry, JobLogEntry, Edge
 from rest_framework import serializers
@@ -183,7 +181,7 @@ class JobSerializer(serializers.ModelSerializer):
 
         fields = ['id', 'name', 'creation_time', 'pipeline', 'queued', 'started',
                   'error', 'finished', 'status', 'start_time', 'stop_time', 'job_inputs', 'file',
-                  'completed_tasks','task_count', 'type', 'owner', 'num_docs']
+                  'completed_tasks','task_count', 'type', 'owner', 'num_docs', 'notification_email']
 
         read_only_fields = ['id', 'creation_time', 'started', 'error', 'finished',
                             'status', 'start_time', 'stop_time', 'file','completed_tasks','task_count', 'type',
@@ -203,7 +201,7 @@ class JobPageSerializer(serializers.ModelSerializer):
 
         fields = ['id', 'name', 'creation_time', 'pipeline_name', 'pipeline_description', 'queued', 'started',
                   'error', 'finished', 'status', 'start_time', 'stop_time', 'job_inputs', 'file',
-                  'completed_tasks','task_count', 'type', 'owner', 'num_docs']
+                  'completed_tasks','task_count', 'type', 'owner', 'num_docs', 'notification_email']
 
         read_only_fields = ['id', 'creation_time', 'started', 'error', 'finished', 'pipeline_name', 'pipeline_description',
                             'status', 'start_time', 'stop_time', 'file','completed_tasks','task_count', 'type',

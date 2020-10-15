@@ -262,8 +262,7 @@ class ProjectViewSet(GenericAPIView):
 
 class PaginatedJobViewSet(viewsets.ModelViewSet):
 
-    queryset = Job.objects.annotate(num_docs=Count('document')).select_related('owner', 'pipeline').all().order_by(
-        '-name')
+    queryset = Job.objects.annotate(num_docs=Count('document')).select_related('owner', 'pipeline').all()
     pagination_class = MediumResultsSetPagination
     serializer_class = JobPageSerializer
     permission_classes = [IsAuthenticated]

@@ -1,6 +1,6 @@
 import uuid
 from django.apps import AppConfig
-from django.db.models.signals import post_save, pre_delete, post_delete, pre_save
+from django.db.models.signals import post_save, post_delete, pre_save
 
 class JobsConfig(AppConfig):
     name = 'Jobs'

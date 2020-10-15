@@ -56,3 +56,20 @@ def SendUsernameEmail(username, name, email):
         print("Error trying to send username reminder email:")
         print(e.message if e.message else e)
         return False
+
+def SendJobFinishedEmail(email, username, job_status, job_name, pipeline_name, pipeline_description):
+    try:
+        sg = sendgrid.SendGridAPIClient(api_key="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")
+        from_email = Email("test@example.com")
+        to_email = To(email)
+        subject = f'GREMLIN - {job_name} - Status: {job_status}'
+        content = Content("text/plain", f"{username},\n\n{job_name} has finished.\n\n\tStatus: {job_status}"
+                                        f"\n\tAnalyzer Type: {pipeline_name}\n\tAnalyzer Description: {pipeline_description}")
+        mail = Mail(from_email, to_email, subject, content)
+        response = sg.client.mail.send.post(request_body=mail.get())
+        return response.status_code == 202
+
+    except Exception as e:
+        print("Error trying to send username reminder email:")
+        print(e.message if e.message else e)
+        return False

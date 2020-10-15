@@ -12,7 +12,9 @@ from zipfile import ZipFile
 from django.core.files.base import ContentFile
 from django.db import connection
 
+import Jobs
 from config import celery_app
+from gremlin_gplv3.utils.emails import SendJobFinishedEmail
 from ..serializers import PythonScriptSummarySerializer
 from ..models import Job, Document, PipelineNode, Result, PythonScript, Edge, Pipeline
 from celery import chain, group, chord
@@ -716,37 +718,42 @@ def unlockScript(*args, scriptId=-1, **kwargs):
 @celery_app.task(base=FaultTolerantTask, name="Stop Current Pipeline")
 def stopPipeline(*args, jobId=-1, **kwargs):
     temp_out = StringIO()
-    sys.stdout = temp_out
     jobLogger = JobLogger(jobId=jobId, name="runJob")
 
-    returnMessage = JOB_FAILED_DID_NOT_FINISH
+    status  = JOB_FAILED_DID_NOT_FINISH
     error = False
 
     temp_out.write(f"Trying to stop pipeline for job {jobId} with args of: {args}")
 
     if len(args) > 0 and not jobSucceeded(args[0]):
-        returnMessage = "{0} - Pipeline failure for job Id {1}. Message: {2}".format(JOB_FAILED_DID_NOT_FINISH, jobId,
+        status = "{0} - Pipeline failure for job Id {1}. Message: {2}".format(JOB_FAILED_DID_NOT_FINISH, jobId,
                                                                                      args[0])
-        stopJob(jobId=jobId, status=returnMessage, error=True)
+        error = True
 
     else:
         try:
             temp_out.write(f"\nStopped job Id{jobId}")
-            returnMessage = JOB_SUCCESS
-            error = False
+            status = JOB_SUCCESS
 
         except Exception as err:
-            returnMessage = "{0} - Error on stopping job #{1}: {2}".format(
+            status = "{0} - Error on stopping job #{1}: {2}".format(
                 JOB_FAILED_DID_NOT_FINISH, jobId, err)
             traceback.print_exc(file=temp_out)
-            jobLogger.error(returnMessage)
+            jobLogger.error(status)
             error = True
 
-    stopJob(jobId=jobId, status=JOB_SUCCESS, error=error)
-    temp_out.write(returnMessage)
-    sys.stdout = sys.__stdout__
+    # Stop the job
+    stopJob(jobId=jobId, status=status, error=error)
+
+    # Send email to job owner alerting them of completion
+    job = Job.objects.prefetch_related('owner', 'pipeline').get(pk=jobId)
+    SendJobFinishedEmail(job.notification_email, job.owner.username, status, job.name,
+                         job.pipeline.name, job.pipeline.description)
+
+    # Write out the log to DB
+    temp_out.write(status)
     jobLogger.info(msg=temp_out.getvalue())
-    return returnMessage
+    return status
 
 
 # this should only be run by the public tasks in this file. It has more limited error handling as it assumes this was handled successfully earlier.

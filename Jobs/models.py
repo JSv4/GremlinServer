@@ -227,6 +227,9 @@ class Job(models.Model):
     # API Integration values
     callback = models.TextField("Callback URL", default="", blank=True, )
 
+    # Notification Email - if specified, user will get a message the result is ready.
+    notification_email = models.CharField(max_length=512, blank=True, default="")
+
     # Data variables
     job_inputs = models.TextField("Input Json", blank=True, default="")
 
