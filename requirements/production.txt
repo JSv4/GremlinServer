@@ -4,6 +4,7 @@
 
 gunicorn==20.0.4  # https://github.com/benoitc/gunicorn
 psycopg2==2.8.5 --no-binary psycopg2  # https://github.com/psycopg/psycopg2
+gevent>=1.4 # https://github.com/gevent/gevent
 
 # Django
 # ------------------------------------------------------------------------------
