@@ -12,7 +12,8 @@ services:
     build:
       context: .
       dockerfile: ./compose/production/django/Dockerfile
-    image: gremlin_gplv3_production_django
+    image: gremlin_production_django
+    container_name: django
     depends_on:
       - postgres
       - redis
@@ -52,9 +53,9 @@ services:
   redis:
     image: redis:5.0
 
-  celeryworker:
+  gremlinworker:
     <<: *django
-    image: gremlin_gplv3_production_celeryworker
+    image: gremlin_production_django:latest
     command: /start-celeryworker
     volumes:
       - worker_usr_data:/usr/local
@@ -63,12 +64,15 @@ services:
 
   celerybeat:
     <<: *django
-    image: gremlin_gplv3_production_celerybeat
+    image: gremlin_production_django:latest
     command: /start-celerybeat
+    depends_on:
+      - redis
+      - postgres
 
   flower:
     <<: *django
-    image: gremlin_gplv3_production_flower
+    image: gremlin_production_django:latest
     command: /start-flower
 
   tika:
