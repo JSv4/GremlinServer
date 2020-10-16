@@ -30,6 +30,7 @@ services:
       context: .
       dockerfile: ./compose/production/postgres/Dockerfile
     image: gremlin_gplv3_production_postgres
+    container_name: postgres
     volumes:
       - production_postgres_data:/var/lib/postgresql/data
       - production_postgres_data_backups:/backups
@@ -41,6 +42,7 @@ services:
       context: .
       dockerfile: ./compose/production/traefik/Dockerfile
     image: gremlin_gplv3_production_traefik
+    container_name: traefik
     depends_on:
       - django
     volumes:
@@ -56,6 +58,7 @@ services:
   gremlinworker:
     <<: *django
     image: gremlin_production_django:latest
+    container_name: gremlinworker
     command: /start-celeryworker
     volumes:
       - worker_usr_data:/usr/local
@@ -65,6 +68,7 @@ services:
   celerybeat:
     <<: *django
     image: gremlin_production_django:latest
+    container_name: celerybeat
     command: /start-celerybeat
     depends_on:
       - redis
@@ -73,6 +77,7 @@ services:
   flower:
     <<: *django
     image: gremlin_production_django:latest
+    container_name: flower
     command: /start-flower
 
   tika:
