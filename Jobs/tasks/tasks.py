@@ -539,6 +539,19 @@ def runJob(*args, jobId=-1, **kwargs):
                                                                    "Unrecognized script type: {0}".format(
                                                                        node.script.type)))
 
+        #createSharedResultForParallelExecution --> OK
+        #extractTextForDoc (parallel)
+        #resultsMerge
+
+        #applyPythonScriptToJob
+
+        #createSharedResultForParallelExecution
+        #applyPythonScriptToJobDoc
+        #resultsMerge
+
+        #packageJobResults
+        #stopPipeline
+
         # add last step which will shut down the job when the tasks complete
         celery_jobs.append(packageJobResults.s(jobId=jobId))
         celery_jobs.append(stopPipeline.s(jobId=jobId))
@@ -581,7 +594,6 @@ def stopPipeline(*args, jobId=-1, **kwargs):
     temp_out = io.StringIO()
     jobLogger = JobLogger(jobId=jobId, name="runJob")
     status = JOB_FAILED_DID_NOT_FINISH
-    results = Result.objects.filter(job__id=jobId)
     error = False
 
     temp_out.write(f"Trying to stop pipeline for job {jobId} with args of: {args}")
@@ -605,9 +617,6 @@ def stopPipeline(*args, jobId=-1, **kwargs):
     # Stop the job
     stopJob(jobId=jobId, status=status, error=error)
 
-    # Stop all related results (in case they weren't properly stopped)
-    results.update(finished=True)
-
     # If we have a specified someone to contact on job completion,
     # send email to them alerting them of completion
     job = Job.objects.prefetch_related('owner', 'pipeline').get(pk=jobId)
@@ -628,10 +637,13 @@ def stopPipeline(*args, jobId=-1, **kwargs):
 def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
 
     # Create loggers
-    print("Create loggers")
     jobLog = io.StringIO()
     jobLogger = JobLogger(jobId=jobId, name="applyPythonScriptToJobDoc")
-    print("Loggers created")
+
+    if len(args) > 0 and not jobSucceeded(args[0]):
+        jobLogger.info(
+            f"applyPythonScriptToJobDoc(docId={docId}, jobId={jobId}, nodeId={nodeId}, scriptId={scriptId}) - A preceding job has failed. Received this message: {args[0]}")
+        return args[0]
 
     # Placeholder for results
     result = None
@@ -796,7 +808,6 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, nodeId=-1, scriptId=-1,
         else:
             result.error = True
             result.save()
-
             raise UserScriptError(message="User script returned Finished=False. Node in error state.")
 
     except Exception as e:
@@ -810,17 +821,7 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, nodeId=-1, scriptId=-1,
         traceback.print_exc(file=jobLog)
         jobLog.write(returnMessage)
         jobLogger.info(jobLog.getvalue())
-        stopJob(jobId=jobId, status=returnMessage, error=True)
-
-        if result:
-            result.stop_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
-            result.finished = True
-            result.error = True
-            result.save()
-
         return returnMessage
-
-    return JOB_FAILED_DID_NOT_FINISH
 
 
 @celery_app.task(base=FaultTolerantTask, name="Celery Wrapper for Python Job Task")
@@ -828,6 +829,11 @@ def applyPythonScriptToJob(*args, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
 
     nodeLog = io.StringIO()  # Memory object to hold job logs for job-level commands (will redirect print statements)
     jobLogger = JobLogger(jobId=jobId, name="applyPythonScriptToJob")
+
+    if len(args) > 0 and not jobSucceeded(args[0]):
+        jobLogger.info(
+            f"applyPythonScriptToJob(jobId={jobId}, nodeId={nodeId}, scriptId={scriptId}) - A preceding job has failed. Received this message: {args[0]}")
+        return args[0]
 
     # Placeholder for results
     result = None
@@ -1001,18 +1007,7 @@ def applyPythonScriptToJob(*args, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
         jobLogger.error(returnMessage)
         traceback.print_exc(file=nodeLog)
         jobLogger.info(nodeLog.getvalue())
-        stopJob(jobId=jobId, status=returnMessage, error=True)
-
-        if result:
-            result.stop_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
-            result.error = True
-            result.finished = True
-            result.save()
-
         return returnMessage
-
-    return JOB_FAILED_DID_NOT_FINISH
-
 
 # Apparently, celery will NOT let you chain two groups without automatically converting the groups to chords.
 # This is not really desired and is killing my workflow... the workaround is to terminate each group in chain with this "chordfinisher"
@@ -1075,11 +1070,16 @@ def createSharedResultForParallelExecution(*args, jobId=-1, stepId=-1, **kwargs)
 def resultsMerge(*args, jobId=-1, stepId=-1, **kwargs):
 
     try:
-        logger.info("Results merge for stepId {0} of jobId {1}".format(stepId, jobId))
 
         # Get loggers
         jobLogger = JobLogger(jobId=jobId, name="resultsMerge")
         mergeLog = io.StringIO()  # Memory object to hold job logs for job-level commands (will redirect print statements)
+
+        jobLogger.info("Results merge for stepId {0} of jobId {1}".format(stepId, jobId))
+
+        if len(args) > 0 and not jobSucceeded(args[0]):
+            jobLogger.info(f"resultsMerge(jobId={jobId}, stepId={stepId}) - A preceding job has failed. Received this message: {args[0]}")
+            return args[0]
 
         # Setup control variables
         error = False
@@ -1339,116 +1339,113 @@ def createNewPythonPackage(*args, scriptId=-1, **kwargs):
 
 @celery_app.task(base=FaultTolerantTask, name="Extract Document Text")
 def extractTextForDoc(*args, docId=-1, **kwargs):
-    logging.info(f"Try to extract doc for docId={docId}")
 
-    if docId == -1:
-        message = "{0} - No doc ID was specified for extractTextForDoc. You must specify a docId.".format(
-            JOB_FAILED_INVALID_DOC_ID)
-        logger.error(message)
-        return message
+    try:
 
-    else:
-        try:
+        logging.info(f"Try to extract doc for docId={docId}")
 
-            logger.info("Attempting to retrieve doc")
-            # I believe the issue here is the task fires before the file is saved due to increased latency
-            # of S3 and my network
-            # See here: https://stackoverflow.com/questions/11539152/django-matching-query-does-not-exist-after-object-save-in-celery-task
+        if len(args) > 0 and not jobSucceeded(args[0]):
+            logging.info(f"extractTextForDoc(docId={docId}) - A preceding job has failed. Received this message: {args[0]}")
+            return args[0]
 
-            d = Document.objects.get(id=docId)
-            logger.info(f"Doc model retrieved: {d}")
-            usingS3 = (settings.DEFAULT_FILE_STORAGE == "gremlin_gplv3.utils.storages.MediaRootS3Boto3Storage")
-            logger.info("UsingS3: {0}".format(usingS3))
+        # I believe the issue here is the task fires before the file is saved due to increased latency
+        # of S3 and my network
+        # See here: https://stackoverflow.com/questions/11539152/django-matching-query-does-not-exist-after-object-save-in-celery-task
 
-            # if the rawText field is still empty... assume that extraction hasn't happened.
-            # for some file types (like image-only pdfs), this will not always be right.
-            if not d.rawText:
+        d = Document.objects.get(id=docId)
+        logger.info(f"Doc model retrieved: {d}")
+        usingS3 = (settings.DEFAULT_FILE_STORAGE == "gremlin_gplv3.utils.storages.MediaRootS3Boto3Storage")
+        logger.info("UsingS3: {0}".format(usingS3))
 
-                logger.info("No rawText detected... attempt to extract")
+        # if the rawText field is still empty... assume that extraction hasn't happened.
+        # for some file types (like image-only pdfs), this will not always be right.
+        if not d.rawText:
 
-                # if we're using Boto S3, we need to interact with the files differently
-                if usingS3:
+            logger.info("No rawText detected... attempt to extract")
 
-                    logger.info("Using S3")
-                    filename = d.file.name
+            # if we're using Boto S3, we need to interact with the files differently
+            if usingS3:
 
-                else:
-
-                    logger.info("Not using S3")
-                    filename = d.file.path
-
-                logger.info(str(filename))
-                name, file_extension = os.path.splitext(filename)
-                logger.info("file_extension is: {0}".format(file_extension))
-
-                # Load the file object from Django storage backend
-                file_object = default_storage.open(filename, mode='rb')
-                logger.info("file_object loaded")
-
-                if file_extension == ".docx":
-
-                    logger.info("Appending: " + filename)
-                    rawText = docx2txt.process(file_object)
-                    d.rawText = rawText
-                    d.extracted = True
-                    d.save()
-
-                    logger.info("Successfully extracted txt from .docX: " + filename)
-
-                elif file_extension == ".doc" or file_extension == ".pdf" or file_extension == ".pdfa":
-                    logger.info(f"Appending AND CONVERTING {file_extension}: " + filename)
-
-                    # Tika source code comments suggest it can open a binary file... but actual code trace...
-                    # suggests that it cannot. I could be wrong, but it keeps choking on binary file and I'm
-                    # tired of screwing with it. Write a temp file with nearly impossible likelihood of collission.
-                    # pass filename to tika. Will delete on finish.
-
-                    # save current word doc to temp file
-                    # nice overview of file modes: https://stackoverflow.com/questions/16208206/confused-by-python-file-mode-w
-                    # file copy code from https://stackoverflow.com/questions/36875258/copying-one-files-contents-to-another-in-python
-                    try:
-                        with tempfile.NamedTemporaryFile(prefix='gremlin_', suffix=file_extension, delete=True) as tf:
-
-                            copyfileobj(file_object, tf)
-                            parsed = parser.from_file(tf.name)
-                            rawText = parsed["content"]
-                            d.rawText = rawText
-                            d.extracted = True
-                            d.save()
-
-                    except Exception as e:
-                        logger.warning(f"Error encountered while trying to parse document: {e}")
-
-                    logger.info("Successfully extracted txt from .doc: " + filename)
-
-                    return JOB_SUCCESS
-
-                else:
-                    message = "{0} - Gremlin currently doesn't support file {0} with extension of {0}".format(
-                        JOB_FAILED_DID_NOT_FINISH, filename, file_extension)
-                    logger.error(message)
-                    return message
-
-                file_object.close()
+                logger.info("Using S3")
+                filename = d.file.name
 
             else:
+
+                logger.info("Not using S3")
+                filename = d.file.path
+
+            logger.info(str(filename))
+            name, file_extension = os.path.splitext(filename)
+            logger.info("file_extension is: {0}".format(file_extension))
+
+            # Load the file object from Django storage backend
+            file_object = default_storage.open(filename, mode='rb')
+            logger.info("file_object loaded")
+
+            if file_extension == ".docx":
+
+                logger.info("Appending: " + filename)
+                rawText = docx2txt.process(file_object)
+                d.rawText = rawText
+                d.extracted = True
+                d.save()
+
+                logger.info("Successfully extracted txt from .docX: " + filename)
+
+            elif file_extension == ".doc" or file_extension == ".pdf" or file_extension == ".pdfa":
+                logger.info(f"Appending AND CONVERTING {file_extension}: " + filename)
+
+                # Tika source code comments suggest it can open a binary file... but actual code trace...
+                # suggests that it cannot. I could be wrong, but it keeps choking on binary file and I'm
+                # tired of screwing with it. Write a temp file with nearly impossible likelihood of collission.
+                # pass filename to tika. Will delete on finish.
+
+                # save current word doc to temp file
+                # nice overview of file modes: https://stackoverflow.com/questions/16208206/confused-by-python-file-mode-w
+                # file copy code from https://stackoverflow.com/questions/36875258/copying-one-files-contents-to-another-in-python
+                try:
+                    with tempfile.NamedTemporaryFile(prefix='gremlin_', suffix=file_extension, delete=True) as tf:
+
+                        copyfileobj(file_object, tf)
+                        parsed = parser.from_file(tf.name)
+                        rawText = parsed["content"]
+                        d.rawText = rawText
+                        d.extracted = True
+                        d.save()
+
+                except Exception as e:
+                    logger.warning(f"Error encountered while trying to parse document: {e}")
+
+                logger.info("Successfully extracted txt from .doc: " + filename)
+
                 return JOB_SUCCESS
-        except Exception as e:
-            message = "{0} - Error extracting doc #{1}. Error: {2}".format(JOB_FAILED_DID_NOT_FINISH, d.id, e)
-            logger.error(message)
-            return message
+
+            else:
+                message = "{0} - Gremlin currently doesn't support file {0} with extension of {0}".format(
+                    JOB_FAILED_DID_NOT_FINISH, filename, file_extension)
+                logger.error(message)
+                return message
+
+            file_object.close()
+
+        else:
+            return JOB_SUCCESS
+
+    except Exception as e:
+        message = "{0} - Error extracting doc #{1}. Error: {2}".format(JOB_FAILED_DID_NOT_FINISH, d.id, e)
+        logger.error(message)
+        return message
 
 
 @celery_app.task(base=FaultTolerantTask, name="Package Job Result")
 def packageJobResults(*args, jobId=-1, **kwargs):
+
     jobLogger = logging.LoggerAdapter(job_logger, extra={"jobId": jobId})
     jobLogger.info(f"Package Job Results for Job ID {jobId}")
 
     if len(args) > 0 and not jobSucceeded(args[0]):
-        message = "{0} - Preceding task failed for job Id {1}. Message: {2}".format(JOB_FAILED_DID_NOT_FINISH, jobId,
-                                                                                    args[0])
-        stopJob(jobId=jobId, status=message, error=True)
-        return message
+        jobLogger.warning(f"packageJobResults(jobId={jobId}) - A preceding job has failed. Received this message: {args[0]}")
+        return args[0]
 
     try:
 

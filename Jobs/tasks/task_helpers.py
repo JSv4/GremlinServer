@@ -339,6 +339,7 @@ def stopJob(jobId=-1, status="N/A", error=False):
         return False
 
     else:
+
         job = Job.objects.get(id=jobId)
         job.status = status
         job.error = error
@@ -346,14 +347,15 @@ def stopJob(jobId=-1, status="N/A", error=False):
         job.stop_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
         job.save()
 
-        #Check if there's a job result obj, and, if so, set to finished
-        jobResult = Result.objects.get(job_id=jobId, type=Result.JOB)
-        if jobResult:
-            if not jobResult.error and not jobResult.finished:
-                jobResult.error=error
-                jobResult.finished=True
-                jobResult.stop_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
-                job.save()
+        # Results (in case they weren't properly stopped)
+        results = Result.objects.filter(job__id=jobId)
+
+        for result in results:
+            result.error = error
+            if not result.finished:
+                result.finished = True
+                result.stop_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
+            result.save()
 
         # If there's a callback... send signal that job is complete.
         if job.callback != "":
