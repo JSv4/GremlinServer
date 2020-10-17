@@ -444,7 +444,7 @@ class ResultsViewSet(viewsets.ModelViewSet):
     queryset = Result.objects.select_related('owner', 'job', 'pipeline_node', 'doc').all().order_by('-job__id')
     filter_fields = ['id', 'job__id', 'start_time', 'stop_time', 'pipeline_node__id']
 
-    pagination_class = LargeResultsSetPagination
+    pagination_class = None
     serializer_class = ResultSummarySerializer
     permission_classes = [IsAuthenticated]
 

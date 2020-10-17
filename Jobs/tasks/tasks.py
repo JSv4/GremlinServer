@@ -1,181 +1,49 @@
 from __future__ import absolute_import, unicode_literals
 
-import requests
-import zipfile
-import traceback
-import tempfile
+import zipfile, traceback, tempfile, subprocess, sys, codecs, os, io, json
+import celery
+import docx2txt
+import tika  # python wrapper for tika server
+import logging
+
 from pathlib import Path
-from glob import iglob
-from os import remove
-from errno import ENOENT
 from zipfile import ZipFile
 from django.core.files.base import ContentFile
 from django.db import connection
-
-import Jobs
 from config import celery_app
-from gremlin_gplv3.utils.emails import SendJobFinishedEmail
-from ..serializers import PythonScriptSummarySerializer
-from ..models import Job, Document, PipelineNode, Result, PythonScript, Edge, Pipeline
 from celery import chain, group, chord
 from celery.signals import celeryd_after_setup
-from .task_helpers import exec_with_return, returnScriptMethod, buildScriptInput, \
-    transformStepInputs, createFunctionFromString, buildNodePipelineRecursively, getPrecedingResults
-from .taskLoggers import JobLogger, TaskLogger
-from shutil import copyfileobj, rmtree
+from shutil import copyfileobj
 from django.conf import settings
 from datetime import datetime
-import subprocess
-import sys
-from io import StringIO  # Python 3
-import celery
-import codecs
-import os
-import io
-import docx2txt
-import uuid
-import json
-import time
-import jsonschema
 
-
-# Errors
-class Error(Exception):
-    """Base class for exceptions in this module."""
-    pass
-
-
-class FileNotSupportedError(Error):
-    """Exception raised for unsupported file input.
-
-    Attributes:
-        expression -- input expression in which the error occurred
-        message -- explanation of the error
-    """
-
-    def __init__(self, message):
-        self.message = message
-
-
-class FileInputError(Error):
-    """Exception raised for errors in the file input.
-
-    Attributes:
-        expression -- input expression in which the error occurred
-        message -- explanation of the error
-    """
-
-    def __init__(self, expression, message):
-        self.expression = expression
-        self.message = message
-
-
-class DataInputError(Error):
-    """Exception raised for errors in the data input.
-
-    Attributes:
-        expression -- input expression in which the error occurred
-        message -- explanation of the error
-    """
-
-    def __init__(self, expression, message):
-        self.expression = expression
-        self.message = message
-
-
-class UserScriptError(Error):
-    """Raised when User's script fails.
-
-   Attributes:
-        expression -- input expression in which the error occurred
-        message -- explanation of the error
-    """
-
-    def __init__(self, expression, message):
-        self.expression = expression
-        self.message = message
-
-
-class PrecedingNodeError(Error):
-    """Raised when previous step in a pipeline fails.
-
-   Attributes:
-        message -- explanation of the error
-    """
-
-    def __init__(self, message):
-        self.message = message
-
-
-class JobAlreadyFinishedError(Error):
-    """Raised when somehow node is running but job is done. Not sure this can actually happen unless DB corrupted.
-
-   Attributes:
-        message -- explanation of the error
-    """
-
-    def __init__(self, message):
-        self.message = message
-
-
-class UserScriptError(Error):
-    """Raised when user script fails.
-
-   Attributes:
-        message -- explanation of the error
-    """
-
-    def __init__(self, message):
-        self.message = message
-
-
-class PipelineError(Error):
-    """Raised when user script fails.
-
-   Attributes:
-        message -- explanation of the error
-    """
-
-    def __init__(self, message):
-        self.message = message
-
-
-# Tika Extraction Imports
-import tika  # python wrapper for tika server
-
-tika.initVM()  # initialize tika object
-from tika import \
-    parser  # then import parser. It's only being used for .doc ATM as I haven't found another good solution for .doc extract
+from gremlin_gplv3.utils.emails import SendJobFinishedEmail
+from Jobs.serializers import PythonScriptSummarySerializer
+from Jobs.models import Job, Document, PipelineNode, Result, PythonScript, Edge, Pipeline
+from Jobs.tasks.task_helpers import exec_with_return, returnScriptMethod, buildScriptInput, \
+    transformStepInputs, createFunctionFromString, buildNodePipelineRecursively, getPrecedingResults, \
+    stopJob, jobSucceeded, getPrecedingNodesForNode
+from Jobs.tasks.taskLoggers import JobLogger, TaskLogger
+from gremlin_gplv3.utils.errors import PipelineError, PrecedingNodeError, JobAlreadyFinishedError, \
+    FileNotSupportedError, UserScriptError
 
 # make default django storage available
 from django.core.files.storage import default_storage
 
 # import gremlin task constants (for job return values)
 from .task_constants import JOB_FAILED_DID_NOT_FINISH, \
-    JOB_FAILED_INVALID_DOC_ID, JOB_FAILED_INVALID_JOB_ID, JOB_SUCCESS, \
-    JOB_FAILED_UNSUPPORTED_FILE_TYPE, JOB_FAILED_INVALID_INPUTS
+    JOB_FAILED_INVALID_DOC_ID, JOB_SUCCESS, \
+    JOB_FAILED_UNSUPPORTED_FILE_TYPE
 
-# task helper methods
-from .task_helpers import stopJob, jobSucceeded, getPrecedingNodesForNode, saveTaskFile, ScriptLogger
+# Tika Extraction Setup
+tika.initVM()  # initialize tika object
+from tika import parser  # then import Tika parser.
 
 # Excellent django logging guidance here: https://docs.python.org/3/howto/logging-cookbook.html
-import logging
-
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 step_logger = logging.getLogger('task_db')
 job_logger = logging.getLogger('job_db')
-
-
-# Cleanup for temporary files
-def cleanup(temp_name):
-    for filename in iglob(temp_name + '*' if temp_name else temp_name):
-        try:
-            remove(filename)
-        except OSError as e:
-            if e.errno != ENOENT:
-                raise e
-
 
 # One of the challenges of switching to a docker-based deploy is that system env isn't persisted and
 # The whole goal of this system is to dynamically provision and reprovision scripts into a data processing
@@ -183,9 +51,10 @@ def cleanup(temp_name):
 # on startup. Currently the approach is super naive. Doesn't do any checking to see if this is necessary so could be duplicative
 @celeryd_after_setup.connect
 def setup_direct_queue(sender, instance, **kwargs):
-    logging.info(f"Celery worker is up.\nSender:{sender}.\nInstance:\n {instance}")
 
     try:
+        logging.info(f"Celery worker is up.\nSender:{sender}.\nInstance:\n {instance}")
+
         scripts = PythonScript.objects.all()
 
         # For each pythonScript, run the setup code...
@@ -297,9 +166,10 @@ def runScriptPackageInstaller(*args, scriptId=-1, new_packages="", **kwargs):
 
 @celery_app.task(base=FaultTolerantTask, name="Run Script Setup Script Installer")
 def runScriptSetupScript(*args, scriptId=-1, **kwargs):
-    logging.info(f"Running setup script for script ID {scriptId}")
 
     try:
+
+        logging.info(f"Running setup script for script ID {scriptId}")
 
         pythonScript = PythonScript.objects.get(id=scriptId)
 
@@ -368,6 +238,7 @@ def runScriptEnvVarInstaller(*args, scriptId=-1, env_variables=None, **kwargs):
 # from the on_save signal for the pipeline or the
 @celery_app.task(base=FaultTolerantTask, name="Calculate digraph")
 def recalculatePipelineDigraph(*args, pipelineId=-1, **kwargs):
+
     print("Recalculate Pipeline Digraph")
 
     try:
@@ -493,7 +364,8 @@ def runJobToNode(*args, jobId=-1, endNodeId=-1, **kwargs):
     try:
 
         if jobId == -1:
-            raise PipelineError(message="ERROR - No job ID was specified for runJobGremlin. You must specify a jobId.")
+            raise PipelineError(message="ERROR - No job ID was specified for runJobGremlin. "
+                                        "You must specify a jobId.")
 
         if endNodeId == -1:
             raise PipelineError(message="ERROR - No pipelineNode ID was specified for runJobGremlin. "
@@ -598,21 +470,17 @@ def runJobToNode(*args, jobId=-1, endNodeId=-1, **kwargs):
 
 
 @celery_app.task(base=FaultTolerantTask, name="Run Job")
-def runJob(*args, jobId=-1, endStep=-1, **kwargs):
+def runJob(*args, jobId=-1, **kwargs):
+
+    temp_out = io.StringIO()
+    jobLogger = JobLogger(jobId=jobId, name="runJob")
 
     try:
 
-        if jobId == -1:
-            raise PipelineError(message="ERROR - No job ID was specified for runJobGremlin. You must specify a jobId.")
-
-        if len(Job.objects.filter(id=jobId)) != 1:
-            raise PipelineError(message="ERROR - There appears to be no job with jobId = {0}.".format(jobId))
-
-        # Redirect stdout and setup a job logger which will collect stdout on finish and then write to DB
-        temp_out = StringIO()
-        jobLogger = JobLogger(jobId=jobId, name="runJob")
-
-        job = Job.objects.get(id=jobId)
+        job = Job.objects.prefetch_related('pipeline').get(id=jobId)
+        jobDocs = Document.objects.filter(job=jobId)
+        pipeline = job.pipeline
+        root = pipeline.root_node
 
         job.start_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
         job.queued = False
@@ -620,9 +488,9 @@ def runJob(*args, jobId=-1, endStep=-1, **kwargs):
         job.status = "Running..."
         job.save()
 
-        pipeline = job.pipeline
-        temp_out.write("Job pipeline is: {0}".format(pipeline))
         temp_out.write("\nJob pipeline is: {0}".format(pipeline))
+        temp_out.write("\nJob has {0} docs.".format(len(jobDocs)))
+        temp_out.write(f"Root node: {root}")
 
         # flatten the digraph and ensure every node only runs after all of the nodes on which it could depend run...
         # this is probably the *least* efficient way to handle this
@@ -631,37 +499,30 @@ def runJob(*args, jobId=-1, endStep=-1, **kwargs):
         # where each "layer" is an array of arrays of all of the same nodes on the same level of the same branch of
         # the digraph (if you think about is as a tree - which, duh, it's not, but hopefully that helps illustrate
         # the possible next iteration of this.
-        root = pipeline.root_node
-        temp_out.write(f"Root node: {root}")
         pipeline_nodes = buildNodePipelineRecursively(pipeline, node=root)
         temp_out.write("\nRaw pipeline nodes are: {0}".format(pipeline_nodes))
-
-        jobDocs = Document.objects.filter(job=jobId)
-        temp_out.write("\nJob has {0} docs.".format(len(jobDocs)))
 
         celery_jobs = []
 
         # Build the celery job pipeline (Note there may be some inefficiencies in how this is constructed)
         # Will fix in future release.
-        logger.info("Build celery instructions")
+        temp_out.write("Build celery instructions")
         for node in pipeline_nodes:
 
             # Start with a job to ensure all of the documents are extracted
             # You can't just use a group here, however, as we want to chain further jobs to it and that will
-            # create the group to a chord in a way we don't want. A workaround is to just treat this as a chord
+            # change the group to a chord in a way we don't want. A workaround is to just treat this as a chord
             # from the start, which will then allow us to chain the chords and get desired behavior IF we use
             # a dummy chord terminator (as there's nothing we want to do with the underlying extractTextForDoc
             # return values.
             # See more here: https://stackoverflow.com/questions/15123772/celery-chaining-groups-and-subtasks-out-of-order-execution
             if node.type == "ROOT_NODE":
-                logger.info("Build root node celery instructions")
                 celery_jobs.append(createSharedResultForParallelExecution.si(jobId=jobId, stepId=node.id))
                 celery_jobs.append(chord(
                     group([extractTextForDoc.si(docId=d.id) for d in jobDocs]),
                     resultsMerge.si(jobId=jobId, stepId=node.id)))
 
-            # TODO - handle packaging step separately similar to the root_node above
-            # For through jobs...
+            # For through scripts...
             elif node.type == "THROUGH_SCRIPT":
                 if node.script.type == PythonScript.RUN_ON_JOB_ALL_DOCS_PARALLEL:
                     celery_jobs.append(createSharedResultForParallelExecution.si(jobId=jobId, stepId=node.id))
@@ -682,13 +543,13 @@ def runJob(*args, jobId=-1, endStep=-1, **kwargs):
         celery_jobs.append(packageJobResults.s(jobId=jobId))
         celery_jobs.append(stopPipeline.s(jobId=jobId))
 
-        logger.info("Final pipeline jobs list:")
-        logger.info(str(celery_jobs))
+        temp_out.write("Final pipeline jobs list:")
+        temp_out.write(str(celery_jobs))
+        temp_out.write("Starting task chain...")
+        temp_out.write("Finished task chain...")
 
-        logger.info("Starting task chain...")
         data = chain(celery_jobs).apply_async()
 
-        logger.info("Finished task chain...")
         jobLogger.info(temp_out.getvalue())
 
         return data
@@ -697,7 +558,6 @@ def runJob(*args, jobId=-1, endStep=-1, **kwargs):
 
         returnMessage = "{0} - Error on Run Job #{1}: {2}".format(JOB_FAILED_DID_NOT_FINISH, jobId, e)
         stopJob(jobId=jobId, status=returnMessage, error=True)
-        traceback.print_exc(file=temp_out)
         jobLogger.error(returnMessage)
         jobLogger.info(temp_out.getvalue())
         return returnMessage
@@ -717,10 +577,11 @@ def unlockScript(*args, scriptId=-1, **kwargs):
 # shutdown the job
 @celery_app.task(base=FaultTolerantTask, name="Stop Current Pipeline")
 def stopPipeline(*args, jobId=-1, **kwargs):
-    temp_out = StringIO()
-    jobLogger = JobLogger(jobId=jobId, name="runJob")
 
-    status  = JOB_FAILED_DID_NOT_FINISH
+    temp_out = io.StringIO()
+    jobLogger = JobLogger(jobId=jobId, name="runJob")
+    status = JOB_FAILED_DID_NOT_FINISH
+    results = Result.objects.filter(job__id=jobId)
     error = False
 
     temp_out.write(f"Trying to stop pipeline for job {jobId} with args of: {args}")
@@ -738,21 +599,26 @@ def stopPipeline(*args, jobId=-1, **kwargs):
         except Exception as err:
             status = "{0} - Error on stopping job #{1}: {2}".format(
                 JOB_FAILED_DID_NOT_FINISH, jobId, err)
-            traceback.print_exc(file=temp_out)
             jobLogger.error(status)
             error = True
 
     # Stop the job
     stopJob(jobId=jobId, status=status, error=error)
 
-    # Send email to job owner alerting them of completion
+    # Stop all related results (in case they weren't properly stopped)
+    results.update(finished=True)
+
+    # If we have a specified someone to contact on job completion,
+    # send email to them alerting them of completion
     job = Job.objects.prefetch_related('owner', 'pipeline').get(pk=jobId)
-    SendJobFinishedEmail(job.notification_email, job.owner.username, status, job.name,
+    if job.notification_email:
+        SendJobFinishedEmail(job.notification_email, job.owner.username, status, job.name,
                          job.pipeline.name, job.pipeline.description)
 
     # Write out the log to DB
     temp_out.write(status)
-    jobLogger.info(msg=temp_out.getvalue())
+    jobLogger.info(temp_out.getvalue())
+
     return status
 
 
@@ -760,24 +626,26 @@ def stopPipeline(*args, jobId=-1, **kwargs):
 # processingTask is assumed to take arguments job and doc
 @celery_app.task(base=FaultTolerantTask, name="Celery Wrapper for Python Job Doc Task")
 def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
-    # Create local logging data object
-    jobLog = StringIO()
-    jobLogger = JobLogger(jobId=jobId, name="applyPythonScriptToJobDoc")
 
-    # Create placeholder for result object
+    # Create loggers
+    print("Create loggers")
+    jobLog = io.StringIO()
+    jobLogger = JobLogger(jobId=jobId, name="applyPythonScriptToJobDoc")
+    print("Loggers created")
+
+    # Placeholder for results
     result = None
 
-    jobLog.write("\napplyPythonScriptToJobDoc - args is:{0}".format(args))
-    jobLog.write("\napplyPythonScriptToJobDoc - docId is:{0}".format(docId))
-    jobLog.write("\napplyPythonScriptToJobDoc - jobId is:{0}".format(jobId))
-    jobLog.write("\napplyPythonScriptToJobDoc - stepId is:{0}".format(nodeId))
-    jobLog.write("\napplyPythonScriptToJobDoc - scriptId is:{0}".format(scriptId))
-
-    if len(args) > 0:
-        jobLog.write(f"\nPrevious job succeeded: {jobSucceeded(args[0])}")
-        jobLog.write("\napplyPythonScriptToJobDoc - args are: {0}".format(args))
-
     try:
+
+        # Create placeholder for result object
+        result = None
+
+        jobLog.write("\napplyPythonScriptToJobDoc - args is:{0}".format(args))
+        jobLog.write("\napplyPythonScriptToJobDoc - docId is:{0}".format(docId))
+        jobLog.write("\napplyPythonScriptToJobDoc - jobId is:{0}".format(jobId))
+        jobLog.write("\napplyPythonScriptToJobDoc - stepId is:{0}".format(nodeId))
+        jobLog.write("\napplyPythonScriptToJobDoc - scriptId is:{0}".format(scriptId))
 
         # Get required objs
         job = Job.objects.get(id=jobId)
@@ -836,7 +704,6 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, nodeId=-1, scriptId=-1,
 
         except Exception as e:
             jobLog.write(f"\nTrying to build preceding data but encountered an unexpected error: {e}")
-            traceback.print_exc(file=jobLog)
 
         # transform the scriptInputs (if there is a transform script provided)
         transformed_data = preceding_data
@@ -932,7 +799,6 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, nodeId=-1, scriptId=-1,
 
             raise UserScriptError(message="User script returned Finished=False. Node in error state.")
 
-
     except Exception as e:
         returnMessage = "{0} - Error in applyPythonScriptToJobDoc for job #{1}, script #{2}: {3}".format(
             JOB_FAILED_DID_NOT_FINISH,
@@ -940,10 +806,10 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, nodeId=-1, scriptId=-1,
             nodeId,
             e
         )
-        jobLogger.error(msg=returnMessage)
+        jobLogger.error(returnMessage)
         traceback.print_exc(file=jobLog)
         jobLog.write(returnMessage)
-        jobLogger.info(message=jobLog.getvalue())
+        jobLogger.info(jobLog.getvalue())
         stopJob(jobId=jobId, status=returnMessage, error=True)
 
         if result:
@@ -959,22 +825,18 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, nodeId=-1, scriptId=-1,
 
 @celery_app.task(base=FaultTolerantTask, name="Celery Wrapper for Python Job Task")
 def applyPythonScriptToJob(*args, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
-    nodeLog = StringIO()  # Memory object to hold job logs for job-level commands (will redirect print statements)
+
+    nodeLog = io.StringIO()  # Memory object to hold job logs for job-level commands (will redirect print statements)
     jobLogger = JobLogger(jobId=jobId, name="applyPythonScriptToJob")
 
     # Placeholder for results
     result = None
 
-    nodeLog.write("applyPythonScriptToJob - jobId: {0}".format(jobId))
-    nodeLog.write("\napplyPythonScriptToJob - scriptId: {0}".format(scriptId))
-
-    if len(args) > 0:
-        nodeLog.write("\napplyPythonScriptToJobDoc - args are: {0}".format(args))
-        nodeLog.write(f"\nPrevious job succeeded: {jobSucceeded(args[0])}")
-
-    nodeLog.write("\napplyPythonScriptToJob - kwargs are: {0}".format(kwargs))
-
     try:
+
+        nodeLog.write("applyPythonScriptToJob - jobId: {0}".format(jobId))
+        nodeLog.write("\napplyPythonScriptToJob - scriptId: {0}".format(scriptId))
+        nodeLog.write("\napplyPythonScriptToJob - kwargs are: {0}".format(kwargs))
 
         # Check to see if parent job has gone into error state or, though this shouldn't happen, finished
         job = Job.objects.get(id=jobId)
@@ -1018,7 +880,7 @@ def applyPythonScriptToJob(*args, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
             nodeLog.write(f"Successfully got preceding data: {preceding_data}")
 
         except Exception as e:
-            nodeLog.write(f"\nTrying to build preceding data but encountered an unexpected error: {e}")
+            nodeLog.write(f"\nTrying to build preceding data but encountered an unexpected error: {e}\n")
             traceback.print_exc(file=nodeLog)
 
         nodeLog.write("\nStarting data transform")
@@ -1165,18 +1027,16 @@ def chordfinisher(previousMessage, *args, **kwargs):
 # Tee up a parallel step by creating step result with proper start time... otherwise we'll lose
 @celery_app.task(base=FaultTolerantTask)
 def createSharedResultForParallelExecution(*args, jobId=-1, stepId=-1, **kwargs):
-    logger.info("createSharedResultForParallelExecution - jobId {0} and stepId {1}".format(jobId, stepId))
 
     try:
-
-        logger.info("Creating result...")
-
+        jobLogger = JobLogger(jobId=jobId, name="runJob")
+        temp = io.StringIO()
         job = Job.objects.get(id=jobId)
-        logger.info("Job object {0}".format(job))
         step = PipelineNode.objects.get(id=stepId)
-        logger.info("Step object: {0}".format(step))
 
-        logger.info("Create step_result")
+        temp.write("createSharedResultForParallelExecution - jobId {0} and stepId {1}".format(jobId, stepId))
+        temp.write("Job object {0}".format(job))
+        temp.write("Step object: {0}".format(step))
 
         # Currently the root node script is null and root nodes just trigger a built-in celery job...
         # I need to update the system so it creates a default root node type *object* in the DB and treats
@@ -1199,8 +1059,8 @@ def createSharedResultForParallelExecution(*args, jobId=-1, stepId=-1, **kwargs)
         )
         step_result.save()
 
-        logger.info("Created result for parallel execution step: ")
-        print(step_result)
+        temp.write("Created result for parallel execution step: ")
+        jobLogger.info(temp.getvalue())
 
         return JOB_SUCCESS
 
@@ -1213,102 +1073,106 @@ def createSharedResultForParallelExecution(*args, jobId=-1, stepId=-1, **kwargs)
 # and pass them along to the next step
 @celery_app.task(base=FaultTolerantTask)
 def resultsMerge(*args, jobId=-1, stepId=-1, **kwargs):
-    logger.info("Results merge for stepId {0} of jobId {1}".format(stepId, jobId))
 
-    # Get loggers
-    jobLogger = JobLogger(jobId=jobId, name="resultsMerge")
-    mergeLog = StringIO()  # Memory object to hold job logs for job-level commands (will redirect print statements)
+    try:
+        logger.info("Results merge for stepId {0} of jobId {1}".format(stepId, jobId))
 
-    # Setup control variables
-    error = False
+        # Get loggers
+        jobLogger = JobLogger(jobId=jobId, name="resultsMerge")
+        mergeLog = io.StringIO()  # Memory object to hold job logs for job-level commands (will redirect print statements)
 
-    # Default return message code
-    returnMessage = JOB_FAILED_DID_NOT_FINISH
+        # Setup control variables
+        error = False
 
-    logger.info("######### Results Merge At End of Parallel Step:")
+        # Default return message code
+        returnMessage = JOB_FAILED_DID_NOT_FINISH
 
-    for arg in args:
-        mergeLog.write(arg)
+        logger.info("######### Results Merge At End of Parallel Step:")
 
-    job = Job.objects.get(id=jobId)
-    step = PipelineNode.objects.get(id=stepId)
-    results = Result.objects.filter(pipeline_node=step, job=job)
+        for arg in args:
+            mergeLog.write(arg)
 
-    # For parallel steps, the step result should have been created before the execution split in parallel workers, so
-    # fetch that earlier result to preserve original start time and store results of the parallel execution
-    logger.info("Try to fetch parallel step result created earlier:")
-    step_result = Result.objects.get(pipeline_node=step, job=job, type=Result.STEP)
-    logger.info("Step result retrieved from memory is: ")
-    logger.info(step_result)
+        job = Job.objects.get(id=jobId)
+        step = PipelineNode.objects.get(id=stepId)
+        results = Result.objects.filter(pipeline_node=step, job=job)
 
-    logger.info("Start results merger for {0} results.".format(str(len(results))))
+        # For parallel steps, the step result should have been created before the execution split in parallel workers, so
+        # fetch that earlier result to preserve original start time and store results of the parallel execution
+        logger.info("Try to fetch parallel step result created earlier:")
+        step_result = Result.objects.get(pipeline_node=step, job=job, type=Result.STEP)
+        logger.info("Step result retrieved from memory is: ")
+        logger.info(step_result)
 
-    input_settings = {}
-    transformed_inputs = {}
-    raw_inputs = {}
-    outputs = {}
+        logger.info("Start results merger for {0} results.".format(str(len(results))))
 
-    for result in results:
+        input_settings = {}
+        transformed_inputs = {}
+        raw_inputs = {}
+        outputs = {}
 
-        logger.info(f"\nTry to package result for {result.name}")
+        for result in results:
 
-        try:
-            input_settings[f"{result.id}"] = json.loads(result.input_settings)
-        except Exception as e:
-            logger.info(f"\nError while trying to input settings for step {result.pipeline_node.step_number} and " \
-                        f"doc {result.id}: {e}")
-            input_settings[f"{result.id}"] = {}
-            error = True
+            logger.info(f"\nTry to package result for {result.name}")
 
-        try:
-            transformed_inputs[f"{result.id}"] = json.loads(result.transformed_input_data)
+            try:
+                input_settings[f"{result.id}"] = json.loads(result.input_settings)
+            except Exception as e:
+                logger.info(f"\nError while trying to input settings for step {result.pipeline_node.step_number} and " \
+                            f"doc {result.id}: {e}")
+                input_settings[f"{result.id}"] = {}
+                error = True
 
-        except Exception as e:
+            try:
+                transformed_inputs[f"{result.id}"] = json.loads(result.transformed_input_data)
 
-            mergeLog(
-                f"\nError while trying to merge transformed input data for step {result.pipeline_node.step_number} "
-                f"and doc {result.id}: {e}")
-            transformed_inputs[f"{result.id}"] = {}
-            error = True
+            except Exception as e:
 
-        try:
-            raw_inputs[f"{result.id}"] = json.loads(result.input_data.raw_input_data)
+                mergeLog.write(
+                    f"\nError while trying to merge transformed input data for step {result.pipeline_node.step_number} "
+                    f"and doc {result.id}: {e}")
+                transformed_inputs[f"{result.id}"] = {}
+                error = True
 
-        except Exception as e:
-            mergeLog.write(
-                f"\nWARNING - Error while trying to merge raw input data for step {result.pipeline_node.step_number} and " \
-                f"doc {result.id}: {e}")
-            raw_inputs[f"{result.id}"] = {}
+            try:
+                raw_inputs[f"{result.id}"] = json.loads(result.input_data.raw_input_data)
 
-        try:
-            outputs[f"{result.id}"] = json.loads(result.output_data.output_data)
-        except Exception as e:
-            mergeLog.write(
-                f"WARNING - Error while trying to merge output data for step {result.pipeline_node.step_number} and " \
-                f"doc {result.id}: {e}")
-            outputs[f"{result.id}"] = {}
-            error = True
+            except Exception as e:
+                mergeLog.write(
+                    f"\nWARNING - Error while trying to merge raw input data for step {result.pipeline_node.step_number} and " \
+                    f"doc {result.id}: {e}")
+                raw_inputs[f"{result.id}"] = {}
 
-    mergeLog.write("\Step result created and saved.")
+            try:
+                outputs[f"{result.id}"] = json.loads(result.output_data.output_data)
+            except Exception as e:
+                mergeLog.write(
+                    f"WARNING - Error while trying to merge output data for step {result.pipeline_node.step_number} and " \
+                    f"doc {result.id}: {e}")
+                outputs[f"{result.id}"] = {}
+                error = True
 
-    # iterate job step completion count
-    job.completed_tasks = job.completed_tasks + 1
-    job.save()
+        mergeLog.write("\Step result created and saved.")
 
-    step_result.stop_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
-    step_result.raw_input_data = json.dumps(raw_inputs)
-    step_result.transformed_input_data = json.dumps(transformed_inputs)
-    step_result.output_data = json.dumps({"documents": outputs})
-    step_result.finished = True
-    step_result.terror = error
-    step_result.save()
+        # iterate job step completion count
+        job.completed_tasks = job.completed_tasks + 1
+        job.save()
 
-    mergeLog.write("\nResults merger complete.")
+        step_result.stop_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
+        step_result.raw_input_data = json.dumps(raw_inputs)
+        step_result.transformed_input_data = json.dumps(transformed_inputs)
+        step_result.output_data = json.dumps({"documents": outputs})
+        step_result.finished = True
+        step_result.terror = error
+        step_result.save()
 
-    jobLogger.info(msg=mergeLog.getvalue())
+        mergeLog.write("\nResults merger complete.")
 
-    return JOB_SUCCESS
+        jobLogger.info(msg=mergeLog.getvalue())
 
+        return JOB_SUCCESS
+
+    except Exception as e:
+        return f"{JOB_FAILED_DID_NOT_FINISH} - Error on results merger: {e}"
 
 @celery_app.task(base=FaultTolerantTask, name="Ensure Script is Available")
 def prepareScript(*args, jobId=-1, scriptId=-1, **kwargs):

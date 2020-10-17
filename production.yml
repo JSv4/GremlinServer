@@ -59,6 +59,9 @@ services:
     <<: *django
     image: gremlin_production_django:latest
     container_name: gremlinworker
+    depends_on:
+      - redis
+      - postgres
     command: /start-celeryworker
     volumes:
       - worker_usr_data:/usr/local
