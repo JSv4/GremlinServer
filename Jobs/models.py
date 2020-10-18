@@ -115,6 +115,8 @@ class PythonScript(models.Model):
     )
 
     locked = models.BooleanField("Object locked (backend performing updates)...", default=False, blank=True)
+    install_error = models.BooleanField("Object locked (backend performing updates)...", default=False, blank=True)
+    install_error_code = models.TextField("Error Description", blank=True, default="")
 
     # Description of the python script
     description = models.TextField("Script Description", blank=True, default="")
@@ -271,7 +273,11 @@ class Pipeline(models.Model):
     name = models.CharField("Pipeline Name", max_length=512, default="Line Name", blank=False)
     description = models.TextField("Pipeline Description", default="", blank=True)
     production = models.BooleanField("Available in Production", default=False, blank=True)
+
+    # fields to handle installation status and failures.
     locked = models.BooleanField("Object locked (backend performing updates)...", default=False, blank=True)
+    install_error = models.BooleanField("Object locked (backend performing updates)...", default=False, blank=True)
+    install_error_code = models.TextField("Error Description", blank=True, default="")
 
     owner = models.ForeignKey(
         get_user_model(),
@@ -399,7 +405,6 @@ class PipelineNode(models.Model):
         on_delete=models.CASCADE,
         default=1
     )
-
     locked = models.BooleanField("Object locked (backend performing updates)...", default=False, blank=True)
 
     # Mapping script... will be use to transform data coming into the script. Helpful in building pipelines where

@@ -169,33 +169,36 @@ def setup_python_script_on_create(sender, instance, created, **kwargs):
 def update_python_script_on_save(sender, instance, **kwargs):
     # print("Got request to update_python_script_on_save")
     try:
+        if not instance.locked:
+            orig = sender.objects.get(pk=instance.pk)
 
-        orig = sender.objects.get(pk=instance.pk)
+            celery_jobs = []
 
-        celery_jobs = []
+            if orig.required_packages != instance.required_packages and instance.required_packages != "":
+                print("Required packages updated AND new package list is not blank")
+                celery_jobs.append(runScriptPackageInstaller.s(scriptId=instance.id,
+                                                               new_packages=instance.required_packages))
 
-        if orig.required_packages != instance.required_packages and instance.required_packages != "":
-            print("Required packages updated AND new package list is not blank")
-            celery_jobs.append(runScriptPackageInstaller.s(scriptId=instance.id,
-                                                           new_packages=instance.required_packages))
+            if orig.setup_script != instance.setup_script and instance.setup_script != "":
+                print("Setup script updated AND new script is not blank")
+                celery_jobs.append(runPythonScriptSetup.s(scriptId=instance.id,
+                                                          setup_script=instance.setup_script))
 
-        if orig.setup_script != instance.setup_script and instance.setup_script != "":
-            print("Setup script updated AND new script is not blank")
-            celery_jobs.append(runPythonScriptSetup.s(scriptId=instance.id,
-                                                      setup_script=instance.setup_script))
+            if orig.env_variables != instance.env_variables and instance.env_variables != "":
+                print("Env variables updated AND new variables are not blank")
+                celery_jobs.append(runScriptEnvVarInstaller.delay(scriptId=instance.id,
+                                                                  env_variables=instance.env_variables))
 
-        if orig.env_variables != instance.env_variables and instance.env_variables != "":
-            print("Env variables updated AND new variables are not blank")
-            celery_jobs.append(runScriptEnvVarInstaller.delay(scriptId=instance.id,
-                                                              env_variables=instance.env_variables))
+            if len(celery_jobs) > 0:
 
-        if len(celery_jobs) > 0:
+                print("There are long-running installer tasks:")
+                print(celery_jobs)
 
-            print("There are long-running installer tasks:")
-            print(celery_jobs)
+                celery_jobs.append(unlockScript.s(scriptId=instance.id))
+                chain(celery_jobs).apply_async()
 
-            celery_jobs.append(unlockScript.s(scriptId=instance.id))
-            chain(celery_jobs).apply_async()
+        else:
+            print(f"This most current version script ID {instance.id} is locked. DO NOT RUN SETUP.")
 
     except sender.DoesNotExist:
         pass
@@ -204,10 +207,12 @@ def update_python_script_on_save(sender, instance, **kwargs):
 # When a digraph edge is updated... rerender the digraph property... which is a react flowchart compatible JSON structure
 # That shows the digraph structure of the job... everything is keyed off of it.
 # TODO - what happens if you try to edit multiple nodes at the same time? THIS IS NOT ALLOWED. SIMPLE
-#  Or you have this operation pending while editing an edge...? Need to think about how to handle this.
+# Django is synchronous by nature. Don't screw with this. If you must, choose another framework.
 def update_digraph_on_edge_change(sender, instance, **kwargs):
-    if not instance.locked:
+    if not instance.parent_pipeline.locked if instance.parent_pipeline else False:
         recalculatePipelineDigraph.delay(pipelineId=instance.parent_pipeline.id)  # TODO - make sure
+    else:
+        print(f"Detected change on edge {instance.id} yet its parent pipeline is LOCKED. Do nothing.")
 
 
 # When a node is created... rerender the parent_pipeline digraph property... e

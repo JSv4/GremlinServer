@@ -4,7 +4,10 @@ from ruamel.yaml import YAML
 from ruamel.yaml.scalarstring import LiteralScalarString
 from pyaml import unicode
 from yaml.representer import SafeRepresenter
+from celery import chain
 from .models import PythonScript, PipelineNode, Edge, Pipeline
+from Jobs.tasks.tasks import importScriptFromYAML, importNodesFromYAML, importEdgesFromYAML, setupPipelineScripts, \
+    unlockPipeline, recalculatePipelineDigraph
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -150,19 +153,19 @@ def exportPipelineToYAMLObj(pipelineId):
         print(f"Error exporting Pipeline Edge to YAML: {e}")
         return {}
 
+# WARNING - this runs asynchronously. It creates pipeline syncrhonously and returns the pipeline data. The pipeline locked,
+# however, and related scripts, nodes and edges get created asynchronously.
 def importPipelineFromYAML(yamlString):
 
     try:
         yaml = YAML()
         data = yaml.load(yamlString)
 
-        print("Loaded data")
+        print("Loaded import data")
         print(data)
 
-        script_lookup = {}
-        node_lookup = {}
-
         parent_pipeline = Pipeline.objects.create(
+            locked=True,
             name=data['pipeline']['name'],
             description=data['pipeline']['description'],
             scale=data['pipeline']['scale'],
@@ -170,70 +173,18 @@ def importPipelineFromYAML(yamlString):
             y_offset=data['pipeline']['y_offset']
         )
 
-        print("Created pipeline: ")
-        print(parent_pipeline)
+        print("Created pipeline synchronously... Lock object and run setup steps async.")
 
-        for script in data['scripts']:
-            print("Handle script:")
-            print(script)
-
-            new_script = PythonScript.objects.create(
-                name=script['name'],
-                human_name=script['human_name'],
-                description=script['description'],
-                type=script['type'],
-                supported_file_types=script['supported_file_types'],
-                script=script['script'],
-                required_packages=script['required_packages'],
-                setup_script=script['setup_script'],
-                env_variables=script['env_variables'],
-            )
-
-            # Need to map the id in the YAML file to the id actually created by Django as there's almost no chance they'll be the same
-            script_lookup[script['id']] = new_script
-
-            print(f"New script created: {new_script}")
-
-        # Create the nodes
-        for node in data['nodes']:
-            print("Handle node:")
-            print(node)
-
-            new_node = PipelineNode.objects.create(
-                name=node['name'],
-                script=script_lookup[node['script']] if node['script'] else None,
-                type=node['type'],
-                input_transform=node['input_transform'],
-                step_settings=json.dumps(node['step_settings']),
-                x_coord=node['x_coord'],
-                y_coord=node['y_coord'],
-                parent_pipeline=parent_pipeline
-            )
-
-            node_lookup[node['id']] = new_node
-
-            print (f"New node created: {new_node}")
-
-        # Go back to the pipeline object and link the root_node field to the appropriate new node obj (we needed to create
-        # the object first so we had the id and could properly refer the two
-        parent_pipeline.root_node=node_lookup[data['pipeline']['root_node']]
-        parent_pipeline.save()
-
-        # Create the edges
-        for edge in data['edges']:
-
-            print("Handle Edge:")
-            print(edge)
-
-            new_edge = Edge.objects.create(
-                label=edge['label'],
-                start_node=node_lookup[edge['start_node']],
-                end_node=node_lookup[edge['end_node']],
-                transform_script=edge['transform_script'],
-                parent_pipeline=parent_pipeline
-            )
-
-            print(f"New edge created: {new_edge}")
+        #Setup all the relationships asynchronously, otherwise this request could take forever to complete
+        chain([
+            importScriptFromYAML.si(scripts=data['scripts']),
+            importNodesFromYAML.s(nodes=data['nodes'], parentPipelineId=parent_pipeline.id,
+                                  rootNodeID=parent_pipeline.root_node.id),
+            importEdgesFromYAML.s(edges=data['edges'], parentPipelineId=parent_pipeline.id),
+            setupPipelineScripts.s(pipelineId=parent_pipeline.id),
+            recalculatePipelineDigraph.s(pipelineId=parent_pipeline.id),
+            unlockPipeline.s(pipelineId=parent_pipeline.id)
+        ]).apply_async()
 
         return parent_pipeline
 

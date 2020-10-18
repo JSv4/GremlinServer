@@ -192,6 +192,7 @@ class JobPageSerializer(serializers.ModelSerializer):
     owner = serializers.HiddenField(
         default=serializers.CurrentUserDefault()
     )
+    pipeline = serializers.PrimaryKeyRelatedField(many=False, queryset=Pipeline.objects.all())
     pipeline_description = serializers.ReadOnlyField(source='pipeline.description')
     pipeline_name = serializers.ReadOnlyField(source='pipeline.name')
     num_docs = serializers.IntegerField(read_only=True)
@@ -199,12 +200,12 @@ class JobPageSerializer(serializers.ModelSerializer):
     class Meta:
         model = Job
 
-        fields = ['id', 'name', 'creation_time', 'pipeline_name', 'pipeline_description', 'queued', 'started',
+        fields = ['id', 'name', 'creation_time', 'pipeline_name', 'pipeline_description', 'pipeline', 'queued', 'started',
                   'error', 'finished', 'status', 'start_time', 'stop_time', 'job_inputs', 'file',
                   'completed_tasks','task_count', 'type', 'owner', 'num_docs', 'notification_email']
 
         read_only_fields = ['id', 'creation_time', 'started', 'error', 'finished', 'pipeline_name', 'pipeline_description',
-                            'status', 'start_time', 'stop_time', 'file','completed_tasks','task_count', 'type',
+                            'pipeline', 'status', 'start_time', 'stop_time', 'file','completed_tasks','task_count', 'type',
                             'owner', 'num_docs']
 
 
