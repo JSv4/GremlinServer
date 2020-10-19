@@ -13,24 +13,16 @@ class JobsConfig(AppConfig):
     def ready(self):
 
         from .signals import run_job_on_queued, setup_python_script_on_create, \
-            update_python_script_on_save, update_pipeline_schema, \
-            process_doc_on_create_atomic, update_digraph_on_edge_change, \
-            update_digraph_on_node_create, update_digraph_on_node_delete
+            update_python_script_on_save, process_doc_on_create_atomic, \
+            update_digraph_on_edge_change, update_digraph_on_node_create, \
+            update_digraph_on_node_delete
         from .models import Job, Document, PythonScript, Edge, PipelineNode
 
         ########################### EDGE SIGNALS ###########################
 
-        # After a pipeline step is deleted, regenerate the schema for the pipeline
-        post_delete.connect(update_pipeline_schema, sender=Edge,
-                            dispatch_uid=uuid.uuid4())
-
         # After a pipeline node is deleted, regenerate the pipeline digraph.
         post_delete.connect(update_digraph_on_edge_change, sender=Edge,
                             dispatch_uid=uuid.uuid4())
-
-        # After a pipeline step is saved / updated, regenerate the schema for the linked pipeline (if applicable)
-        post_save.connect(update_pipeline_schema, sender=Edge,
-                          dispatch_uid=uuid.uuid4())
 
         # After a pipeline edge is saved / updated, regenerate the pipeline digraph.
         post_save.connect(update_digraph_on_edge_change, sender=Edge,
@@ -72,7 +64,4 @@ class JobsConfig(AppConfig):
         # Right before a python script is UPDATED, see if the package list has changed and,
         # if so, run the installer task.
         pre_save.connect(update_python_script_on_save, sender=PythonScript,
-                         dispatch_uid=uuid.uuid4())
-
-        pre_save.connect(update_pipeline_schema, sender=PythonScript,
                          dispatch_uid=uuid.uuid4())

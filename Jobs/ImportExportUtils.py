@@ -4,10 +4,11 @@ from ruamel.yaml import YAML
 from ruamel.yaml.scalarstring import LiteralScalarString
 from pyaml import unicode
 from yaml.representer import SafeRepresenter
-from celery import chain
+from celery import chain, chord, group
 from .models import PythonScript, PipelineNode, Edge, Pipeline
 from Jobs.tasks.tasks import importScriptFromYAML, importNodesFromYAML, importEdgesFromYAML, setupPipelineScripts, \
-    unlockPipeline, recalculatePipelineDigraph
+    unlockPipeline, recalculatePipelineDigraph, linkRootNodeFromYAML, runScriptEnvVarInstaller, runScriptSetupScript, \
+    runScriptPackageInstaller, unlockScript
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -175,13 +176,22 @@ def importPipelineFromYAML(yamlString):
 
         print("Created pipeline synchronously... Lock object and run setup steps async.")
 
+        script_setup_steps = []
+        for script in data['scripts']:
+            script_setup_steps.extend([
+                runScriptEnvVarInstaller.s(oldScriptId=script['id']),
+                runScriptSetupScript.s(oldScriptId=script['id']),
+                runScriptPackageInstaller.s(oldScriptId=script['id']),
+                unlockScript.s(oldScriptId=script['id'])
+            ])
+
         #Setup all the relationships asynchronously, otherwise this request could take forever to complete
         chain([
             importScriptFromYAML.si(scripts=data['scripts']),
-            importNodesFromYAML.s(nodes=data['nodes'], parentPipelineId=parent_pipeline.id,
-                                  rootNodeID=parent_pipeline.root_node.id),
+            importNodesFromYAML.s(nodes=data['nodes'], parentPipelineId=parent_pipeline.id),
             importEdgesFromYAML.s(edges=data['edges'], parentPipelineId=parent_pipeline.id),
-            setupPipelineScripts.s(pipelineId=parent_pipeline.id),
+            linkRootNodeFromYAML.s(pipeline_data=data['pipeline'], parentPipelineId=parent_pipeline.id),
+            *script_setup_steps,
             recalculatePipelineDigraph.s(pipelineId=parent_pipeline.id),
             unlockPipeline.s(pipelineId=parent_pipeline.id)
         ]).apply_async()

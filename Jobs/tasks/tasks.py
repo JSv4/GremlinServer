@@ -130,47 +130,65 @@ class FaultTolerantTask(celery.Task):
 
 
 @celery_app.task(base=FaultTolerantTask, name="Run Script Package Installer")
-def runScriptPackageInstaller(*args, scriptId=-1, **kwargs):
-        try:
+def runScriptPackageInstaller(*args, scriptId=-1, oldScriptId=-1, **kwargs):
 
-            pythonScript = PythonScript.objects.get(id=scriptId)
-
-            if pythonScript.required_packages != "":
-
-                packages = pythonScript.required_packages.split("\n")
-
-                if len(packages) > 0:
-                    logging.info(f"Script requires {len(packages)} packages. "
-                                 f"Ensure required packages are installed:\n {pythonScript.required_packages}")
-
-                    p = subprocess.Popen([sys.executable, "-m", "pip", "install", *packages], stdout=subprocess.PIPE)
-                    out, err = p.communicate()
-
-                    # Need to escape out the escape chars in the resulting string: https://stackoverflow.com/questions/6867588/how-to-convert-escaped-characters
-                    out = codecs.getdecoder("unicode_escape")(out)[0]
-                    if err:
-                        err = codecs.getdecoder("unicode_escape")(err)[0]
-                        logging.error(f"Errors from pythonScript pre check: \n{err}")
-
-                    logging.info(f"Results of python installer for {pythonScript.name} \n{out}")
-
-            return True
-
-        except Exception as e:
-            logging.error(f"Error setting running python script installers.\nScript ID:{scriptId}.\n"
-                          f"Error: \n{e}")
-            return False
-
-@celery_app.task(base=FaultTolerantTask, name="Run Script Setup Script Installer")
-def runScriptSetupScript(*args, scriptId=-1, **kwargs):
+    logger.info(f"runScriptPackageInstaller - scriptId {scriptId} and oldScriptId {oldScriptId}: {args}")
+    return_data = {}
 
     try:
 
-        logging.info(f"Running setup script for script ID {scriptId}")
+        if len(args) > 0 and oldScriptId != -1:
+            return_data=args[0]
+            if return_data['error']:
+                return return_data
+            pythonScript = PythonScript.objects.get(id=args[0]['script_lookup'][f"{oldScriptId}"])
+        else:
+            pythonScript = PythonScript.objects.get(id=scriptId)
 
-        pythonScript = PythonScript.objects.get(id=scriptId)
+        if pythonScript.required_packages != "":
+
+            packages = pythonScript.required_packages.split("\n")
+
+            if len(packages) > 0:
+                logging.info(f"Script requires {len(packages)} packages. "
+                             f"Ensure required packages are installed:\n {pythonScript.required_packages}")
+
+                p = subprocess.Popen([sys.executable, "-m", "pip", "install", *packages], stdout=subprocess.PIPE)
+                out, err = p.communicate()
+
+                # Need to escape out the escape chars in the resulting string: https://stackoverflow.com/questions/6867588/how-to-convert-escaped-characters
+                out = codecs.getdecoder("unicode_escape")(out)[0]
+                if err:
+                    err = codecs.getdecoder("unicode_escape")(err)[0]
+                    logging.error(f"Errors from pythonScript pre check: \n{err}")
+
+                logging.info(f"Results of python installer for {pythonScript.name} \n{out}")
+
+    except Exception as e:
+        error = f"Error setting running python script installers.\nScript ID:{scriptId}.\nError: \n{e}"
+        logging.error(error)
+        return_data['error']=error
+
+    return return_data
+
+@celery_app.task(base=FaultTolerantTask, name="Run Script Setup Script Installer")
+def runScriptSetupScript(*args, scriptId=-1, oldScriptId=-1, **kwargs):
+
+    logger.info(f"runScriptSetupScript - scriptId {scriptId} and oldScriptId {oldScriptId}: {args}")
+    return_data = {}
+
+    try:
+
+        if len(args) > 0 and oldScriptId != -1:
+            return_data = args[0]
+            if return_data['error']:
+                return return_data
+            pythonScript = PythonScript.objects.get(id=args[0]['script_lookup'][f"{oldScriptId}"])
+        else:
+            pythonScript = PythonScript.objects.get(id=scriptId)
 
         setupScript = pythonScript.setup_script
+
         if setupScript != "":
 
             logging.info(f"Script {pythonScript.name} has setupScript: {setupScript}")
@@ -189,42 +207,64 @@ def runScriptSetupScript(*args, scriptId=-1, **kwargs):
                     logging.error(f"Errors from pythonScript pre check: \n{err}")
 
                 logging.info(f"Results of bash install pythonScript for {pythonScript.name}: \n{out}")
-        return True
 
     except Exception as e:
-        logging.error(f"Error setting running python script installers.\nScript ID:{scriptId}.\n"
-                      f"Error: \n{e}")
-        return False
+        error = f"Error setting running python script installers.\nScript ID:{scriptId}.\nError: \n{e}"
+        logging.error(error)
+        return_data['error'] = error
+
+    return return_data
 
 # expecting results of importEdgesFromYAML which should be args[0] of dict with 'script_lookup', 'node_lookup' and 'edge_lookup'
-@celery_app.task(base=FaultTolerantTask, name="Run Script Env Variable Installer")
+@celery_app.task(base=FaultTolerantTask, name="Setup Pipeline Scripts")
 def setupPipelineScripts(*args, pipelineId=-1, **kwargs):
-    try:
-        print(f"setupPipelineScripts args: {args}")
-        scripts = args[0]['script_lookup']
-        setup_tasks=[]
-        for importScriptId, scriptId in scripts.items():
-            setup_tasks.append(
-                chord(
-                    group([
-                        runScriptEnvVarInstaller.si(scriptId=scriptId),
-                        runScriptSetupScript.si(scriptId=scriptId),
-                        runScriptPackageInstaller.si(scriptId=scriptId)
-                    ]),
-                    unlockScript.s(scriptId=scriptId)
-                )
-            )
 
-        data = chain(setup_tasks).apply_async()
-        return data
+    logger.info(f"setupPipelineScripts - for pipelineId {pipelineId}, args are: {args}")
+    previous_data = args[0]
+
+    try:
+
+        if not previous_data['error']:
+
+            logger.info("No error in pipeline detected")
+            setup_tasks=[]
+
+            for importScriptId, scriptId in previous_data['script_lookup'].items():
+                setup_tasks.append(
+                    chord(
+                        group([
+                            runScriptEnvVarInstaller.si(scriptId=scriptId),
+                            runScriptSetupScript.si(scriptId=scriptId),
+                            runScriptPackageInstaller.si(scriptId=scriptId)
+                        ]),
+                        unlockScript.s(scriptId=scriptId)
+                    )
+                )
+
+            chain(setup_tasks).apply_async()
 
     except Exception as e:
-        logging.error(f"Error trying to setup pipelineScripts: {e}")
+        error = f"Error trying to setup pipelineScripts: {e}"
+        logging.error(error)
+        previous_data['error']=error
+
+    return previous_data
 
 @celery_app.task(base=FaultTolerantTask, name="Run Script Env Variable Installer")
-def runScriptEnvVarInstaller(*args, scriptId=-1, **kwargs):
+def runScriptEnvVarInstaller(*args, scriptId=-1, oldScriptId=-1, **kwargs):
+
+    logger.info(f"runScriptEnvVarInstaller - scriptId {scriptId}: {args}")
+    return_data = {}
+
     try:
-        pythonScript = PythonScript.objects.get(id=scriptId)
+        if len(args)>0 and oldScriptId!=-1:
+            return_data=args[0]
+            if return_data['error']:
+                return return_data
+            pythonScript = PythonScript.objects.get(id=args[0]['script_lookup'][f"{oldScriptId}"])
+
+        else:
+            pythonScript = PythonScript.objects.get(id=scriptId)
 
         if pythonScript.env_variables and pythonScript.env_variables != "":
             logging.info(f"It appears there are env variables: {pythonScript.env_variables}")
@@ -242,12 +282,13 @@ def runScriptEnvVarInstaller(*args, scriptId=-1, **kwargs):
                 logging.info(f"Adding env_var {e} with value {v}")
                 os.environ[e] = v
 
-        return True
+        return return_data
 
     except Exception as e:
-        logging.error(f"Error setting running python script installers.\nScript ID:{scriptId}.\n"
-                      f"Error: \n{e}")
-        return False
+        error = f"Error setting running python script installers.\nScript ID:{scriptId}.\nError: \n{e}"
+        logging.error(error)
+        return_data['error']=error
+        return return_data
 
 # Rather than tie up the main Django thread calculating a digraph,move it to a separate tasks that can be called
 # from the on_save signal for the pipeline or the
@@ -255,123 +296,135 @@ def runScriptEnvVarInstaller(*args, scriptId=-1, **kwargs):
 def recalculatePipelineDigraph(*args, pipelineId=-1, **kwargs):
 
     print("Recalculate Pipeline Digraph")
+    previous_data = {}
 
     try:
-        nodes = PipelineNode.objects.prefetch_related('out_edges', 'in_edges').filter(parent_pipeline__id=pipelineId)
-        edges = Edge.objects.filter(parent_pipeline__id=pipelineId)
-        pipeline = Pipeline.objects.get(pk=pipelineId)
 
-        digraph = {
-            "offset": {
-                "x": pipeline.x_offset,
-                "y": pipeline.y_offset,
-            },
-            "type": ["PIPELINE"],
-            "scale": pipeline.scale,
-            "selected": {},
-            "hovered": {},
-        }
-        renderedNodes = {}
-        renderedEdges = {}
+        if len(args)>0:
+            previous_data = args[0]
 
-        for node in nodes:
+        if not previous_data \
+            or ('error' in previous_data and not previous_data['error']) \
+            or 'error' not in previous_data:
 
-            ports = {}
+            nodes = PipelineNode.objects.prefetch_related('out_edges', 'in_edges').filter(parent_pipeline__id=pipelineId)
+            edges = Edge.objects.filter(parent_pipeline__id=pipelineId)
+            pipeline = Pipeline.objects.get(pk=pipelineId)
 
-            if node.type == PipelineNode.SCRIPT:
-                ports = {
-                    "output": {
-                        "id": 'output',
-                        "type": 'output',
-                    },
-                    "input": {
-                        "id": 'input',
-                        "type": 'input',
-                    },
-                }
-            elif node.type == PipelineNode.ROOT_NODE:
-                ports = {
-                    "output": {
-                        "id": 'output',
-                        "type": 'output',
-                    },
-                }
-            # TODO - handle more node types
-
-            print("Try to render node")
-            print(f"Node: {node}")
-            renderedNode = {
-                "id": f"{node.id}",
-                "name": node.name,
-                "settings": node.step_settings,
-                "input_transform": node.input_transform,
-                "type": node.type,
-                "position": {
-                    "x": node.x_coord,
-                    "y": node.y_coord
+            digraph = {
+                "offset": {
+                    "x": pipeline.x_offset,
+                    "y": pipeline.y_offset,
                 },
-                "ports": ports
+                "type": ["PIPELINE"],
+                "scale": pipeline.scale,
+                "selected": {},
+                "hovered": {},
             }
+            renderedNodes = {}
+            renderedEdges = {}
 
-            # Only need to handle instances where script is null (e.g. where the node is a root node and there's
-            # no linked script because it's hard coded on the backend
-            if node.type == "ROOT_NODE":
-                # If the default pre-processor has been overwritten... use linked script details
-                if node.script == None:
-                    renderedNode["script"] = {
-                        "id": -1,
-                        "human_name": "Pre Processor",
-                        "type": "RUN_ON_JOB_DOCS",
-                        "supported_file_types": "",
-                        "description": "Default pre-processor to ensure docx, doc and pdf files are extracted."
+            for node in nodes:
+
+                ports = {}
+
+                if node.type == PipelineNode.SCRIPT:
+                    ports = {
+                        "output": {
+                            "id": 'output',
+                            "type": 'output',
+                        },
+                        "input": {
+                            "id": 'input',
+                            "type": 'input',
+                        },
                     }
-                # otherwise... provide default values
-                else:
-                    renderedNode["script"] = {
-                        "id": node.script.id,
-                        "human_name": node.script.human_name,
-                        "type": node.script.type,
-                        "supported_file_types": node.script.supported_file_types,
-                        "description": node.script.description
+                elif node.type == PipelineNode.ROOT_NODE:
+                    ports = {
+                        "output": {
+                            "id": 'output',
+                            "type": 'output',
+                        },
                     }
-            else:
-                if node.script is None:
-                    renderedNode["script"] = None
-                else:
-                    script = node.script
-                    serializer = PythonScriptSummarySerializer(script, many=False)
-                    renderedNode["script"] = serializer.data
+                # TODO - handle more node types
 
-            renderedNodes[f"{node.id}"] = renderedNode
-
-        for edge in edges:
-            renderedEdges[f"{edge.id}"] = {
-                "id": f"{edge.id}",
-                "from": {
-                    "nodeId": f"{edge.start_node.id}",
-                    "portId": "output"
-                },
-                "to": {
-                    "nodeId": f"{edge.end_node.id}",
-                    "portId": "input"
+                print("Try to render node")
+                print(f"Node: {node}")
+                renderedNode = {
+                    "id": f"{node.id}",
+                    "name": node.name,
+                    "settings": node.step_settings,
+                    "input_transform": node.input_transform,
+                    "type": node.type,
+                    "position": {
+                        "x": node.x_coord,
+                        "y": node.y_coord
+                    },
+                    "ports": ports
                 }
-            }
 
-        digraph['nodes'] = renderedNodes
-        digraph['links'] = renderedEdges
+                # Only need to handle instances where script is null (e.g. where the node is a root node and there's
+                # no linked script because it's hard coded on the backend
+                if node.type == "ROOT_NODE":
+                    # If the default pre-processor has been overwritten... use linked script details
+                    if node.script == None:
+                        renderedNode["script"] = {
+                            "id": -1,
+                            "human_name": "Pre Processor",
+                            "type": "RUN_ON_JOB_DOCS",
+                            "supported_file_types": "",
+                            "description": "Default pre-processor to ensure docx, doc and pdf files are extracted."
+                        }
+                    # otherwise... provide default values
+                    else:
+                        renderedNode["script"] = {
+                            "id": node.script.id,
+                            "human_name": node.script.human_name,
+                            "type": node.script.type,
+                            "supported_file_types": node.script.supported_file_types,
+                            "description": node.script.description
+                        }
+                else:
+                    if node.script is None:
+                        renderedNode["script"] = None
+                    else:
+                        script = node.script
+                        serializer = PythonScriptSummarySerializer(script, many=False)
+                        renderedNode["script"] = serializer.data
 
-        print("Digraph is: ")
-        print(digraph)
+                renderedNodes[f"{node.id}"] = renderedNode
 
-        pipeline.digraph = digraph
-        pipeline.save()
+            for edge in edges:
+                renderedEdges[f"{edge.id}"] = {
+                    "id": f"{edge.id}",
+                    "from": {
+                        "nodeId": f"{edge.start_node.id}",
+                        "portId": "output"
+                    },
+                    "to": {
+                        "nodeId": f"{edge.end_node.id}",
+                        "portId": "input"
+                    }
+                }
 
-        return True
+            digraph['nodes'] = renderedNodes
+            digraph['links'] = renderedEdges
+
+            print("Digraph is: ")
+            print(digraph)
+
+            pipeline.digraph = digraph
+            pipeline.save()
+
+        return previous_data
 
     except Exception as e:
-        returnMessage = "{0} - Error rendering digraph for pipeline ID #{1}: {2}".format(JOB_FAILED_DID_NOT_FINISH,
+        error = "{0} - Error rendering digraph for pipeline ID #{1}: {2}".format(JOB_FAILED_DID_NOT_FINISH,
                                                                                          pipelineId, e)
-        return False
+        logger.error(f"recalculatePipelineDigraph: {error}")
+        previous_data['error'] = error
+
+    return previous_data
 
 
 @celery_app.task(base=FaultTolerantTask, name="Run Job To Node")
@@ -594,29 +647,57 @@ def runJob(*args, jobId=-1, **kwargs):
 @celery_app.task(base=FaultTolerantTask, name="Unlock Pipeline")
 def unlockPipeline(*args, pipelineId=-1, **kwargs):
 
+    logger.info(f"unlockPipeline - args: {args}")
+    previous_data = {}
+
     try:
+        previous_data=args[0]
         pipeline = Pipeline.objects.get(pk=pipelineId)
-        pipeline.locked = False
+
+        if previous_data['error']:
+            pipeline.install_error=True
+            pipeline.install_error_code=previous_data['error']
+
+        else:
+            pipeline.install_error_code=""
+            pipeline.install_error=False
+            pipeline.locked = False
+
         pipeline.save()
-        return True
 
     except Exception as err:
-        print(f"Error trying to pipeline {pipelineId}: {err}")
-        return False
+        error = f"Error trying to unlock pipeline {pipelineId}: {err}"
+        print(error)
+        previous_data['error']=error
+
+    return previous_data
 
 # Unlock a script after setup is complete.
 @celery_app.task(base=FaultTolerantTask, name="Unlock Script")
-def unlockScript(*args, scriptId=-1, **kwargs):
+def unlockScript(*args, scriptId=-1, oldScriptId=-1, **kwargs):
+
+    logger.info(f"unlockScript - - scriptId {scriptId} and oldScriptId {oldScriptId}: {args}")
+    return_data = {}
 
     try:
-        script = PythonScript.objects.get(pk=scriptId)
-        script.locked = False
-        script.save()
-        return True
+
+        if len(args) > 0 and oldScriptId != -1:
+            return_data = args[0]
+            if return_data['error']:
+                return return_data
+            pythonScript = PythonScript.objects.get(id=args[0]['script_lookup'][f"{oldScriptId}"])
+        else:
+            pythonScript = PythonScript.objects.get(id=scriptId)
+
+        pythonScript.locked = False
+        pythonScript.save()
 
     except Exception as err:
-        print(f"Error trying to unlock script: {err}")
-        return False
+        error = f"Error trying to unlock script: {err}"
+        print(error)
+        return_data['error'] = error
+
+    return return_data
 
 # shutdown the job
 @celery_app.task(base=FaultTolerantTask, name="Stop Current Pipeline")
@@ -1374,6 +1455,7 @@ def importEdgesFromYAML(*args, edges=[], parentPipelineId=-1, **kwargs):
 
     try:
 
+        logger.info(f"importEdgesFromYAML - Received args: {args}")
         return_data = args[0]
         edge_lookup = {}
 
@@ -1385,10 +1467,10 @@ def importEdgesFromYAML(*args, edges=[], parentPipelineId=-1, **kwargs):
 
                 new_edge = Edge.objects.create(
                     label=edge['label'],
-                    start_node=return_data['node_lookup'][edge['start_node']],
-                    end_node=return_data['node_lookup'][edge['end_node']],
+                    start_node_id=return_data['node_lookup'][f"{edge['start_node']}"],
+                    end_node_id=return_data['node_lookup'][f"{edge['end_node']}"],
                     transform_script=edge['transform_script'],
-                    parent_pipeline=parentPipelineId
+                    parent_pipeline_id=parentPipelineId
                 )
 
                 #Need to map the edge id in the import file to the actual id created after import (they won't be the same)
@@ -1398,14 +1480,15 @@ def importEdgesFromYAML(*args, edges=[], parentPipelineId=-1, **kwargs):
         return_data['edge_lookup'] = edge_lookup
 
     except Exception as e:
-        logger.error("Error trying to import edges")
-        return_data['error']=True
+        error = f"ImportEdgesFromYAML - Error trying to import edges: {e}"
+        logger.error(error)
+        return_data['error']=error
 
     return return_data
 
 # Expects args[0] to be script_lookup
 @celery_app.task(base=FaultTolerantTask, name="Import Nodes from YAML")
-def importNodesFromYAML(*args, nodes=[], parentPipelineId=-1, rootNodeId=-1, **kwargs):
+def importNodesFromYAML(*args, nodes=[], parentPipelineId=-1, **kwargs):
 
     node_lookup={}
     return_data = {} #pass along the script_lookup and node_lookup
@@ -1438,25 +1521,51 @@ def importNodesFromYAML(*args, nodes=[], parentPipelineId=-1, rootNodeId=-1, **k
                 node_lookup[int(node['id'])] = new_node.id
                 print(f"Old node id of {node['id']} mapped to {new_node.id}")
 
-            print(f"Link root node {rootNodeId} to pipeline:{parentPipelineId}")
-            parent_pipeline = Pipeline.objects.get(pk=parentPipelineId)
-            parent_pipeline.root_node = node_lookup[rootNodeId]
-            parent_pipeline.save()
             print(f"Complete...")
 
     except Exception as e:
-        logger.error(f"Error trying to import nodes: {e}")
-        return_data['error']=True
+        error = f"Error trying to import nodes: {e}"
+        logger.error(error)
+        return_data['error']=error
 
     return_data['node_lookup'] = node_lookup
     return return_data
+
+
+# Expects args[0] to be script_lookup
+@celery_app.task(base=FaultTolerantTask, name="Link Root Node to Pipeline from YAML")
+def linkRootNodeFromYAML(*args, pipeline_data=None, parentPipelineId=-1, **kwargs):
+
+    return_data = {} # pass along the script_lookup and node_lookup
+
+    try:
+
+        print(f"linkRootNodeFromYAML - The return_data is: {args}")
+        return_data = args[0]
+
+        if not return_data['error']:
+
+            print(f"linkRootNodeFromYAML - No error detected in pipeline.")
+
+            parent_pipeline = Pipeline.objects.get(pk=parentPipelineId)
+            parent_pipeline.root_node_id = return_data['node_lookup'][f"{pipeline_data['root_node']}"]
+            parent_pipeline.save()
+
+        print(f"linkRootNodeFromYAML - Linking complete.")
+
+    except Exception as e:
+        error = f"Error trying to link pipeline to root node: {e}"
+        logger.error(error)
+        return_data['error'] = error
+
+    return return_data
+
 
 @celery_app.task(base=FaultTolerantTask, name="Import Script from YAML")
 def importScriptFromYAML(*Args, scripts=[], **kwargs):
 
     return_data = {}
-    return_data['error'] = False
-
+    return_data['error'] = None
     script_lookup = {}
 
     try:
@@ -1486,8 +1595,9 @@ def importScriptFromYAML(*Args, scripts=[], **kwargs):
         return_data['script_lookup'] = script_lookup
 
     except Exception as e:
-        logger.error(f"Unable to create script from data: \n\n{scripts}\n\nERROR: {e}")
-        return_data['error'] = True
+        error = f"Unable to create script from data: \n\n{scripts}\n\nERROR: {e}"
+        logger.error(error)
+        return_data['error'] = error
 
     return return_data
 

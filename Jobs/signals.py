@@ -1,6 +1,8 @@
 from celery import chain
 import json
 from django.db import transaction
+from django.core.exceptions import ObjectDoesNotExist
+from .serializers import EdgeSerializer
 
 from .tasks.task_helpers import buildNodePipelineRecursively
 from .tasks.tasks import runJob, runPythonScriptSetup, extractTextForDoc, \
@@ -24,124 +26,6 @@ def run_job_on_queued(sender, instance, created, **kwargs):
 def process_doc_on_create_atomic(sender, instance, created, **kwargs):
     if created:
         transaction.on_commit(lambda: extractTextForDoc.delay(docId=instance.id))
-
-
-# Updates the pipeline schema and the pipeline supported files when one of the linked scripts changes...
-# I am doing this to avoid complicated recalculations at runtime... that said, it's possible that trying to compute
-# this on the backend in response to changes could lead to data getting out of sync... Can trying to remedy this later
-# if it becomes an issue.
-def update_pipeline_schema(sender, instance, **kwargs):
-    print(f"Got signal to update pipeline schema for sender type {sender} and instance ID #{instance.id}. "
-          f"kwargs are {kwargs}")
-
-    try:
-
-        if sender is Edge and not sender.parent_pipeline.locked if sender.parent_pipeline else False:
-            print("Sender is Pipeline Digraph Edge")
-            pipeline = Pipeline.objects.filter(id=instance.parent_pipeline.id)
-            if pipeline.count() == 1:
-                pipelines = [*pipeline]
-
-        # If the sender is a PythonScript... get any Pipeline that uses the script (as well as any PipelineSteps)
-        # Then we need to regenerate the supported filetypes and schemas for those objs.
-        elif sender is PythonScript and not sender.locked:
-
-            print("Sender is PythonScript")
-
-            # Scripts have a lot of different settings and we don't want to have to constantly run the expensve recalculations
-            # on the Pipeline and PipelineSteps for *every* script *every* time it changes. Check here to make sure that
-            # the script schema or its supported file types have changed.
-            # with pre-save, you can tell if an object already exists by seeing if the instance in question has an id
-            if instance.id:
-
-                script = PythonScript.objects.get(id=instance.id)
-                oldInstance = PythonScript.objects.get(id=instance.id)
-
-                print("PythonScript already exists")
-
-                # If the supported_file_type and required_inputs (should be renamed schema) fields are the same from old obj
-                # to new, don't do anything further.
-                if (instance.supported_file_types == oldInstance.supported_file_types and
-                    instance.required_inputs == oldInstance.required_inputs):
-                    print("No changes! Do nothing...")
-                    return None
-
-                print("Changes detected!")
-
-            else:
-                return None  # If this is a new script, obv we don't need to recalculate any pipelines or pipeline steps
-
-            print("Get pipelineSteps and Pipelines")
-
-            pipelineStepIds = PipelineNode.objects.prefetch_related('parent_pipeline').filter(script=script) \
-                .exclude(parent_pipeline__isnull=True).values_list('parent_pipeline__id')
-            print("pipelineStepIds:")
-            print(pipelineStepIds)
-
-            pipelines = Pipeline.objects.filter(id__in=pipelineStepIds)
-            print("pipelines")
-            print(pipelines)
-
-        else:
-            print(f"Unexpected sender type of {type(sender)} received by update_pipeline_schema")
-            return None
-
-        print(f"Number of affected pipelines to rebuild schemas for: {len(pipelines)}")
-        if len(pipelines) > 0:
-
-            print(f"Pipelines: {pipelines}")
-
-            for pipeline_num, pipeline in enumerate(pipelines):
-
-                print(f"Pipeline {pipeline_num} of {len(pipelines) + 1}: Rebuild schemas and "
-                      f"allowed files for pipeline {pipeline}")
-
-                numbered_schemas = {}
-                supported_files = []
-
-                # If there is no root node, we can't build the schema and there's nothing to do here.
-                if pipeline.root_node:
-
-                    pipelineNodes = buildNodePipelineRecursively(pipeline, node=pipeline.root_node)
-
-                    for index, ps in enumerate(pipelineNodes):
-                        schema = {}
-
-                        try:
-                            schema = json.loads(ps.script.schema)
-                        except Exception as e:
-                            print(f"Error trying to fetch schema for script {ps.id} in pipeline {pipeline.id}: {e}")
-
-                        numbered_schemas[ps.id] = {
-                            "name": ps.name,
-                            "schema": schema
-                        }
-
-                        try:
-                            files = json.loads(ps.script.supported_file_types)
-                            if len(supported_files) == 0:
-                                supported_files = [*files]
-                            else:
-                                supported_files = [x for x in supported_files if x in files]
-                        except Exception as e:
-                            print(
-                                f"Error trying to aggregate supported files for script {ps.id} in pipeline {pipeline.id}")
-
-                else:
-                    pipelineNodes = []
-                    numbered_schemas = {}
-                    supported_files = []
-
-                # Need to add one as there's a built-in packaging step.
-                # Packaging can take a while, so, if you don't add a step to the count
-                # On the UI it looks like results are hanging. Completion goes to 100% while job is "stuck" running
-                pipeline.total_steps = len(pipelineNodes) + 1
-                pipeline.schema = json.dumps({"schema": numbered_schemas})
-                pipeline.supported_files = json.dumps({"supported_files": supported_files})
-                pipeline.save()
-
-    except Exception as e:
-        print(f"Error trying to update pipeline schema: {e}")
 
 
 # When a new script is created... perform required setup (if there are values that require setup)
@@ -209,11 +93,19 @@ def update_python_script_on_save(sender, instance, **kwargs):
 # TODO - what happens if you try to edit multiple nodes at the same time? THIS IS NOT ALLOWED. SIMPLE
 # Django is synchronous by nature. Don't screw with this. If you must, choose another framework.
 def update_digraph_on_edge_change(sender, instance, **kwargs):
-    if not instance.parent_pipeline.locked if instance.parent_pipeline else False:
-        recalculatePipelineDigraph.delay(pipelineId=instance.parent_pipeline.id)  # TODO - make sure
-    else:
-        print(f"Detected change on edge {instance.id} yet its parent pipeline is LOCKED. Do nothing.")
 
+    print(f"update_digraph_on_edge_change - sender type {type(sender)} instance is: {instance}")
+    print(EdgeSerializer(instance).data)
+
+    try:
+        pipeline = Pipeline.objects.get(pk=instance.parent_pipeline_id)
+        if pipeline and not pipeline.locked:
+            recalculatePipelineDigraph.delay(pipelineId=instance.parent_pipeline.id)
+        else:
+            print(f"Detected change on edge {instance.id} yet its parent pipeline is LOCKED. Do nothing.")
+
+    except ObjectDoesNotExist as e:
+        print(f"Can't update pipeline on edge delete: {e}.\nThis is a sign digraph update was called in process of deleting a pipeline.")
 
 # When a node is created... rerender the parent_pipeline digraph property... e
 # That shows the digraph structure of the job... everything is keyed off of it.
