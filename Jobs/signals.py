@@ -32,74 +32,30 @@ def process_doc_on_create_atomic(sender, instance, created, **kwargs):
 
 
 # When a new script is created... perform required setup (if there are values that require setup)
-def setup_python_script_on_create(sender, instance, created, **kwargs):
+def setup_python_script_after_save(sender, instance, created, **kwargs):
 
-    if created and not instance.locked:
+    setup_steps = []
 
-        setup_steps=[]
+    if instance.package_needs_install:
+        logger.info("setup_python_script_after_save - Required packages updated AND new package list is not blank")
+        setup_steps.append(runScriptPackageInstaller.s(scriptId=instance.id,
+                                                       new_packages=instance.required_packages))
 
-        # Determine which setup tasks are required based on what has changed about the script. Assemble a chain of
-        # setup scripts with unlock as the terminator.
+    if instance.script_needs_install:
+        logger.info(f"setup_python_script_after_save - Setup script updated AND new script is not blank. New value: {instance.setup_script}")
+        setup_steps.append(runScriptSetupScript.s(scriptId=instance.id,
+                                                  setup_script=instance.setup_script))
 
-        # if there is a list of required packages, add a job to install them
-        if not instance.required_packages == "":
-            setup_steps.append(runScriptPackageInstaller.s(scriptId=instance.id))
+    if instance.env_variables_need_install:
+        logger.info("setup_python_script_after_save - Env variables updated AND new variables are not blank")
+        setup_steps.append(runScriptEnvVarInstaller.s(scriptId=instance.id,
+                                                      env_variables=instance.env_variables))
 
-        if not instance.setup_script == "":
-            setup_steps.append(runScriptSetupScript.s(scriptId=instance.id))
-
-        if not instance.env_variables == "":
-            setup_steps.append(runScriptEnvVarInstaller.s(scriptId=instance.id))
-
-        # If no setup steps were required, don't bother with lock, unlock.
-        if len(setup_steps)>0:
-            logger.info("Detected that script setup tasks are needed. Lock.")
-            setup_steps.insert(0, lockScript.si(scriptId=instance.id))
-            setup_steps.append(unlockScript.s(scriptId=instance.id))
-            chain(setup_steps).apply_async()
-        else:
-            logger.info("Detected no setup tasks required. No lock or unlock required.")
-
-
-# When a python script is updated... save the updated code and, if necessary, run the installer.
-def update_python_script_on_save(sender, instance, **kwargs):
-    # print("Got request to update_python_script_on_save")
-    try:
-
-        if not instance.locked:
-
-            orig = sender.objects.get(pk=instance.pk)
-            celery_jobs = []
-
-            if orig.required_packages != instance.required_packages and instance.required_packages != "":
-                print("Required packages updated AND new package list is not blank")
-                celery_jobs.append(runScriptPackageInstaller.s(scriptId=instance.id,
-                                                               new_packages=instance.required_packages))
-
-            if orig.setup_script != instance.setup_script and instance.setup_script != "":
-                print(f"Setup script updated AND new script is not blank. New value: {instance.setup_script}")
-                celery_jobs.append(runScriptSetupScript.s(scriptId=instance.id,
-                                                          setup_script=instance.setup_script))
-
-            if orig.env_variables != instance.env_variables and instance.env_variables != "":
-                print("Env variables updated AND new variables are not blank")
-                celery_jobs.append(runScriptEnvVarInstaller.s(scriptId=instance.id,
-                                                                  env_variables=instance.env_variables))
-
-            if len(celery_jobs) > 0:
-
-                logger.info("Detected that script setup tasks are needed. Tasks:")
-                celery_jobs.insert(0, lockScript.si(scriptId=instance.id))
-                celery_jobs.append(unlockScript.s(scriptId=instance.id))
-                logger.info(celery_jobs)
-                chain(celery_jobs).apply_async()
-
-        else:
-            print(f"This most current version script ID {instance.id} is locked. DO NOT RUN SETUP.")
-
-    except sender.DoesNotExist:
-        pass
-
+    if len(setup_steps) > 0:
+        logger.info("setup_python_script_after_save - Detected that script setup tasks are needed. Tasks:")
+        setup_steps.append(unlockScript.s(scriptId=instance.id))
+        logger.info(setup_steps)
+        chain(setup_steps).apply_async()
 
 # When a digraph edge is updated... rerender the digraph property... which is a react flowchart compatible JSON structure
 # That shows the digraph structure of the job... everything is keyed off of it.

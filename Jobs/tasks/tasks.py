@@ -747,6 +747,7 @@ def lockScript(*args, scriptId=-1, oldScriptId=-1, **kwargs):
 # of unlocking it and add error code to the model.
 @celery_app.task(base=FaultTolerantTask, name="Unlock Script")
 def unlockScript(*args, scriptId=-1, oldScriptId=-1, **kwargs):
+
     logger.info(f"unlockScript - scriptId {scriptId} and oldScriptId {oldScriptId}: {args}")
     return_data = {}
 
@@ -770,21 +771,21 @@ def unlockScript(*args, scriptId=-1, oldScriptId=-1, **kwargs):
         else:
             id = scriptId
 
-        logging.info("Use update to show install status for this script without triggering signals.")
-
         setup_log = f"Script Stdout:\n\n{return_data['setup_message'] if 'setup_message' in return_data else ''}\n\n" \
                     f"Script Stderr:\n\n{return_data['setup_error'] if 'setup_error' in return_data else ''}"
 
         installer_log = f"Package Installer Stdout:\n\n{return_data['package_installer_message'] if 'package_installer_message' in return_data else ''}\n\n" \
                         f"Package Installer Stderr:\n\n{return_data['package_installer_error'] if 'package_installer_error' in return_data else ''}"
 
-        PythonScript.objects.filter(id=id).update(
-            install_error='error' in return_data and bool(return_data['error']),
-            install_error_code=return_data['error'] if 'error' in return_data else False,
-            setup_log=setup_log,
-            installer_log=installer_log,
-            locked=False
-        )
+        pythonScript = PythonScript.objects.get(id=id)
+        pythonScript.install_error='error' in return_data and bool(return_data['error'])
+        pythonScript.install_error_code=return_data['error'] if 'error' in return_data else False
+        pythonScript.setup_log=setup_log
+        pythonScript.installer_log=installer_log
+        pythonScript.package_needs_install = False
+        pythonScript.script_needs_install = False
+        pythonScript.env_variables_need_install= False
+        pythonScript.save()
         logging.info("Installer Done!")
 
     except Exception as err:

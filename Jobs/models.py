@@ -114,7 +114,6 @@ class PythonScript(models.Model):
         default=RUN_ON_JOB,
     )
 
-    locked = models.BooleanField("Object locked (backend performing updates)...", default=False, blank=True)
     install_error = models.BooleanField("Installation Error", default=False, blank=True)
     install_error_code = models.TextField("Installation Error Description", blank=True, default="")
 
@@ -129,12 +128,15 @@ class PythonScript(models.Model):
 
     # the list of python packages to install (use pip requirements.txt format)
     required_packages = models.TextField("Required Python Packages", blank=True, default="")
+    package_needs_install = models.BooleanField("Package Install Needed", default=False, blank=True)
 
     # code to call after install required packages but before this script is ready (e.g. NLTK data files)
     setup_script = models.TextField("Python setup script", blank=True, default="")
+    script_needs_install = models.BooleanField("Script Install Needed", default=False, blank=True)
 
     # stringified json representation of env varis
     env_variables = models.TextField("Environment Variables", blank=True, default="")
+    env_variables_need_install = models.BooleanField("Env Variables Install Needed", default=False, blank=True)
 
     # Expected JsonSchema goes here. Based on v7 of JsonSchema. For now, this needs to be entered manually.
     schema = models.TextField("Input Schema", blank=True, default="")
@@ -154,34 +156,29 @@ class PythonScript(models.Model):
     # place to store the last results of the setup script
     setup_log = models.TextField("Setup Log", blank=True, default="")
 
+    def locked(self):
+        return self.package_needs_install or self.script_needs_install or self.env_variables_need_install
+
     def __str__(self):
         return self.human_name
 
-    # If the setup_script or required_packages are changed... THEN flip the model to locked as the installers
-    # need to actually setup the script.
-    # def save(self, *args, **kwargs):
-    #
-    #     # if this is an existing model... check for changes to setup_script or required_packages
-    #     if self.pk:
-    #
-    #         orig = PythonScript.objects.get(pk=self.pk)
-    #         if self.required_packages != "" and self.required_packages != orig.required_packages or \
-    #             self.setup_script != "" and self.setup_script != orig.setup_script or \
-    #             self.env_variables != "" and self.env_variables != orig.env_variables:
-    #             self.locked = True
-    #
-    #         if self.required_packages == "" and self.setup_script == "" and self.env_variables == "":
-    #             self.locked = False
-    #
-    #     # If this is a new model (and there is no pk yet), then, if there is any text at all for packages or setup)
-    #     # lock the model
-    #     else:
-    #
-    #         if self.required_packages or self.setup_script or self.env_variables:
-    #             self.locked = True
-    #
-    #     super(PythonScript, self).save(*args, **kwargs)
+    # If the setup_script or required_packages are changed... flag required setup types needed in the model.
+    def save(self, *args, **kwargs):
 
+        # if this is an existing model... check for changes to setup_script or required_packages
+        if self.pk:
+
+            orig = PythonScript.objects.get(pk=self.pk)
+            if self.required_packages != "" and self.required_packages != orig.required_packages:
+                self.package_needs_install=True
+
+            if self.setup_script != "" and self.setup_script != orig.setup_script:
+                self.script_needs_install = True
+
+            if self.env_variables != "" and self.env_variables != orig.env_variables:
+                self.env_variables_need_install = True
+
+        super(PythonScript, self).save(*args, **kwargs)
 
 class Job(models.Model):
     # Script enumerations for type (ready for deployment vs test)

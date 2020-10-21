@@ -49,6 +49,7 @@ class ProjectSerializer(serializers.Serializer):
 class PythonScriptSerializer(serializers.ModelSerializer):
 
     owner = serializers.ReadOnlyField(source='owner.username')
+    locked = serializers.SerializerMethodField()
 
     class Meta:
         model = PythonScript
@@ -73,6 +74,9 @@ class PythonScriptSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'setup_log', 'owner', 'locked']
 
+    def locked(self, obj):
+        return obj.locked()
+
 class PythonScriptSummarySerializer_READ_ONLY(serializers.ModelSerializer):
 
     owner = serializers.HiddenField(
@@ -93,7 +97,7 @@ class PythonScriptSummarySerializer_READ_ONLY(serializers.ModelSerializer):
             'locked',
             'owner'
         ]
-        fields = [
+        read_only_fields = [
             'id',
             'name',
             'human_name',
@@ -104,6 +108,9 @@ class PythonScriptSummarySerializer_READ_ONLY(serializers.ModelSerializer):
             'locked',
             'owner'
         ]
+
+    def locked(self, obj):
+        return obj.locked()
 
 class PythonScriptSummarySerializer(serializers.ModelSerializer):
 
@@ -127,6 +134,8 @@ class PythonScriptSummarySerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'owner', 'locked']
 
+    def locked(self, obj):
+        return obj.locked()
 
 class DocumentSerializer(serializers.ModelSerializer):
 

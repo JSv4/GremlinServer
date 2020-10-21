@@ -12,10 +12,9 @@ class JobsConfig(AppConfig):
     # https://simpleisbetterthancomplex.com/tutorial/2016/07/28/how-to-create-django-signals.html
     def ready(self):
 
-        from .signals import run_job_on_queued, setup_python_script_on_create, \
-            update_python_script_on_save, process_doc_on_create_atomic, \
-            update_digraph_on_edge_change, update_digraph_on_node_create, \
-            update_digraph_on_node_delete
+        from .signals import run_job_on_queued, setup_python_script_after_save, \
+            process_doc_on_create_atomic, update_digraph_on_edge_change, \
+            update_digraph_on_node_create, update_digraph_on_node_delete
         from .models import Job, Document, PythonScript, Edge, PipelineNode
 
         ########################### EDGE SIGNALS ###########################
@@ -58,11 +57,7 @@ class JobsConfig(AppConfig):
 
         ########################### PYTHON SCRIPT SIGNALS ###########################
 
-        #When a python script is created, run installer task for that script
-        post_save.connect(setup_python_script_on_create, sender=PythonScript,
+        # When a python script is saved, flags are created to install various features (packages, install script or env
+        # variables). This signal checks for the flags and queus up long-running, async tasks to handle them.
+        post_save.connect(setup_python_script_after_save, sender=PythonScript,
                           dispatch_uid=uuid.uuid4())
-
-        # Right before a python script is UPDATED, see if the package list has changed and,
-        # if so, run the installer task.
-        pre_save.connect(update_python_script_on_save, sender=PythonScript,
-                         dispatch_uid=uuid.uuid4())
