@@ -115,8 +115,8 @@ class PythonScript(models.Model):
     )
 
     locked = models.BooleanField("Object locked (backend performing updates)...", default=False, blank=True)
-    install_error = models.BooleanField("Object locked (backend performing updates)...", default=False, blank=True)
-    install_error_code = models.TextField("Error Description", blank=True, default="")
+    install_error = models.BooleanField("Installation Error", default=False, blank=True)
+    install_error_code = models.TextField("Installation Error Description", blank=True, default="")
 
     # Description of the python script
     description = models.TextField("Script Description", blank=True, default="")
@@ -159,28 +159,28 @@ class PythonScript(models.Model):
 
     # If the setup_script or required_packages are changed... THEN flip the model to locked as the installers
     # need to actually setup the script.
-    def save(self, *args, **kwargs):
-
-        # if this is an existing model... check for changes to setup_script or required_packages
-        if self.pk:
-
-            orig = PythonScript.objects.get(pk=self.pk)
-            if self.required_packages != "" and self.required_packages != orig.required_packages or \
-                self.setup_script != "" and self.setup_script != orig.setup_script or \
-                self.env_variables != "" and self.env_variables != orig.env_variables:
-                self.locked = True
-
-            if self.required_packages == "" and self.setup_script == "" and self.env_variables == "":
-                self.locked = False
-
-        # If this is a new model (and there is no pk yet), then, if there is any text at all for packages or setup)
-        # lock the model
-        else:
-
-            if self.required_packages or self.setup_script or self.env_variables:
-                self.locked = True
-
-        super(PythonScript, self).save(*args, **kwargs)
+    # def save(self, *args, **kwargs):
+    #
+    #     # if this is an existing model... check for changes to setup_script or required_packages
+    #     if self.pk:
+    #
+    #         orig = PythonScript.objects.get(pk=self.pk)
+    #         if self.required_packages != "" and self.required_packages != orig.required_packages or \
+    #             self.setup_script != "" and self.setup_script != orig.setup_script or \
+    #             self.env_variables != "" and self.env_variables != orig.env_variables:
+    #             self.locked = True
+    #
+    #         if self.required_packages == "" and self.setup_script == "" and self.env_variables == "":
+    #             self.locked = False
+    #
+    #     # If this is a new model (and there is no pk yet), then, if there is any text at all for packages or setup)
+    #     # lock the model
+    #     else:
+    #
+    #         if self.required_packages or self.setup_script or self.env_variables:
+    #             self.locked = True
+    #
+    #     super(PythonScript, self).save(*args, **kwargs)
 
 
 class Job(models.Model):
@@ -276,8 +276,8 @@ class Pipeline(models.Model):
 
     # fields to handle installation status and failures.
     locked = models.BooleanField("Object locked (backend performing updates)...", default=False, blank=True)
-    install_error = models.BooleanField("Object locked (backend performing updates)...", default=False, blank=True)
-    install_error_code = models.TextField("Error Description", blank=True, default="")
+    install_error = models.BooleanField("Installation Error", default=False, blank=True)
+    install_error_code = models.TextField("Installation Error Description", blank=True, default="")
 
     owner = models.ForeignKey(
         get_user_model(),

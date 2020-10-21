@@ -20,7 +20,7 @@ class JobsConfig(AppConfig):
 
         ########################### EDGE SIGNALS ###########################
 
-        # After a pipeline node is deleted, regenerate the pipeline digraph.
+        # After a pipeline edge is deleted, regenerate the pipeline digraph.
         post_delete.connect(update_digraph_on_edge_change, sender=Edge,
                             dispatch_uid=uuid.uuid4())
 
@@ -32,7 +32,8 @@ class JobsConfig(AppConfig):
 
         # After a pipeline step is created, regenerate the linked digraph (we don't care about edits as node meta data
         # should be fetched separately and the digraph should just show the ids and relationships to each other in
-        # the digraph
+        # the digraph). As long as the nodes and relationships thereto remain unchanged, don't care about any other
+        # node props or linked scripts.
         post_save.connect(update_digraph_on_node_create, sender=PipelineNode,
                           dispatch_uid=uuid.uuid4())
 

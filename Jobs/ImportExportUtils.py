@@ -8,7 +8,7 @@ from celery import chain, chord, group
 from .models import PythonScript, PipelineNode, Edge, Pipeline
 from Jobs.tasks.tasks import importScriptFromYAML, importNodesFromYAML, importEdgesFromYAML, setupPipelineScripts, \
     unlockPipeline, recalculatePipelineDigraph, linkRootNodeFromYAML, runScriptEnvVarInstaller, runScriptSetupScript, \
-    runScriptPackageInstaller, unlockScript
+    runScriptPackageInstaller, unlockScript, lockScript
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -179,6 +179,7 @@ def importPipelineFromYAML(yamlString):
         script_setup_steps = []
         for script in data['scripts']:
             script_setup_steps.extend([
+                lockScript.s(oldScriptId=script['id']),
                 runScriptEnvVarInstaller.s(oldScriptId=script['id']),
                 runScriptSetupScript.s(oldScriptId=script['id']),
                 runScriptPackageInstaller.s(oldScriptId=script['id']),
@@ -186,6 +187,14 @@ def importPipelineFromYAML(yamlString):
             ])
 
         #Setup all the relationships asynchronously, otherwise this request could take forever to complete
+        # I originally tried to make script_setup_steps a group of chains, where the four script setup tasks
+        # for each script (runScriptEnvVarInstaller, runScriptSetupScript, runScriptPackageInstaller and unlockScript)
+        # would be a chort but, if there were multiple script, the different script assembly groups would be grouped
+        # and run in parallel if worker bandwidth were available. Unfortunately, I ran into a weird issue where I had a
+        # task that created and launched these chords yet it seemed to run twice and the second call to it would break
+        # as it didn't have arguments. Never figured it out and didn't want that to delay the release. This version obv
+        # does everything in serial, so it's slower in theory, but these things execute pretty quickly and I expect imports
+        # to be rare. Can work on improving this later.
         chain([
             importScriptFromYAML.si(scripts=data['scripts']),
             importNodesFromYAML.s(nodes=data['nodes'], parentPipelineId=parent_pipeline.id),
