@@ -179,7 +179,6 @@ def importPipelineFromYAML(yamlString):
         script_setup_steps = []
         for script in data['scripts']:
             script_setup_steps.extend([
-                lockScript.s(oldScriptId=script['id']),
                 runScriptEnvVarInstaller.s(oldScriptId=script['id']),
                 runScriptSetupScript.s(oldScriptId=script['id']),
                 runScriptPackageInstaller.s(oldScriptId=script['id']),

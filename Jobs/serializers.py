@@ -74,8 +74,6 @@ class PythonScriptSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'setup_log', 'owner', 'locked']
 
-    def locked(self, obj):
-        return obj.locked()
 
 class PythonScriptSummarySerializer_READ_ONLY(serializers.ModelSerializer):
 
@@ -109,8 +107,6 @@ class PythonScriptSummarySerializer_READ_ONLY(serializers.ModelSerializer):
             'owner'
         ]
 
-    def locked(self, obj):
-        return obj.locked()
 
 class PythonScriptSummarySerializer(serializers.ModelSerializer):
 
@@ -134,8 +130,6 @@ class PythonScriptSummarySerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'owner', 'locked']
 
-    def locked(self, obj):
-        return obj.locked()
 
 class DocumentSerializer(serializers.ModelSerializer):
 

@@ -782,9 +782,10 @@ def unlockScript(*args, scriptId=-1, oldScriptId=-1, **kwargs):
         pythonScript.install_error_code=return_data['error'] if 'error' in return_data else False
         pythonScript.setup_log=setup_log
         pythonScript.installer_log=installer_log
-        pythonScript.package_needs_install = False
-        pythonScript.script_needs_install = False
-        pythonScript.env_variables_need_install= False
+        pythonScript.package_needs_install=False
+        pythonScript.script_needs_install=False
+        pythonScript.env_variables_need_install=False
+        pythonScript.locked=False
         pythonScript.save()
         logging.info("Installer Done!")
 

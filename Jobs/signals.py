@@ -36,20 +36,22 @@ def setup_python_script_after_save(sender, instance, created, **kwargs):
 
     setup_steps = []
 
-    if instance.package_needs_install:
-        logger.info("setup_python_script_after_save - Required packages updated AND new package list is not blank")
-        setup_steps.append(runScriptPackageInstaller.s(scriptId=instance.id,
-                                                       new_packages=instance.required_packages))
+    if not instance.locked:
 
-    if instance.script_needs_install:
-        logger.info(f"setup_python_script_after_save - Setup script updated AND new script is not blank. New value: {instance.setup_script}")
-        setup_steps.append(runScriptSetupScript.s(scriptId=instance.id,
-                                                  setup_script=instance.setup_script))
+        if instance.package_needs_install:
+            logger.info("setup_python_script_after_save - Required packages updated AND new package list is not blank")
+            setup_steps.append(runScriptPackageInstaller.s(scriptId=instance.id,
+                                                           new_packages=instance.required_packages))
 
-    if instance.env_variables_need_install:
-        logger.info("setup_python_script_after_save - Env variables updated AND new variables are not blank")
-        setup_steps.append(runScriptEnvVarInstaller.s(scriptId=instance.id,
-                                                      env_variables=instance.env_variables))
+        if instance.script_needs_install:
+            logger.info(f"setup_python_script_after_save - Setup script updated AND new script is not blank. New value: {instance.setup_script}")
+            setup_steps.append(runScriptSetupScript.s(scriptId=instance.id,
+                                                      setup_script=instance.setup_script))
+
+        if instance.env_variables_need_install:
+            logger.info("setup_python_script_after_save - Env variables updated AND new variables are not blank")
+            setup_steps.append(runScriptEnvVarInstaller.s(scriptId=instance.id,
+                                                          env_variables=instance.env_variables))
 
     if len(setup_steps) > 0:
         logger.info("setup_python_script_after_save - Detected that script setup tasks are needed. Tasks:")

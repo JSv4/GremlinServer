@@ -149,15 +149,13 @@ class PythonScript(models.Model):
         choices=RUN_MODE,
         default=TEST,
     )
+    locked = models.BooleanField("Locked by backend.", default=False, blank=True)
 
     # place to store the latest results of package installer...
     installer_log = models.TextField("Installation Log", blank=True, default="")
 
     # place to store the last results of the setup script
     setup_log = models.TextField("Setup Log", blank=True, default="")
-
-    def locked(self):
-        return self.package_needs_install or self.script_needs_install or self.env_variables_need_install
 
     def __str__(self):
         return self.human_name
@@ -176,6 +174,17 @@ class PythonScript(models.Model):
                 self.script_needs_install = True
 
             if self.env_variables != "" and self.env_variables != orig.env_variables:
+                self.env_variables_need_install = True
+
+        # If this is a new model, any content in required_packages, setup_script or env_variables triggers installer flags
+        else:
+            if self.required_packages != "":
+                self.package_needs_install = True
+
+            if self.setup_script != "":
+                self.script_needs_install = True
+
+            if self.env_variables != "":
                 self.env_variables_need_install = True
 
         super(PythonScript, self).save(*args, **kwargs)
