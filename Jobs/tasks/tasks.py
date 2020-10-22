@@ -172,11 +172,13 @@ def runScriptPackageInstaller(*args, scriptId=-1, oldScriptId=-1, new_packages="
                 return_data['package_installer_error'] = err
 
             logging.info(f"Results of python installer for {pythonScript.name} \n{out}")
+            return_data['packages_installed'] = True
 
     except Exception as e:
         error = f"Error setting running python script installers.\nScript ID:{scriptId}.\nError: \n{e}"
         logging.error(error)
         return_data['error'] = error
+        return_data['packages_installed'] = False
 
     return return_data
 
@@ -213,6 +215,8 @@ def runScriptSetupScript(*args, scriptId=-1, oldScriptId=-1, setup_script=None, 
 
             logging.info(f"Script {pythonScript.name} has setupScript: {setupScript}")
 
+            results = ""
+            errors = ""
             lines = setupScript.split("\n")
 
             for line in lines:
@@ -221,63 +225,27 @@ def runScriptSetupScript(*args, scriptId=-1, oldScriptId=-1, setup_script=None, 
                 out, err = p.communicate()
                 p.wait()
 
-                # Need to escape out the escape chars in the resulting string: https://stackoverflow.com/questions/6867588/how-to-convert-escaped-characters
-                out = codecs.getdecoder("unicode_escape")(out)[0]
-                return_data['setup_message'] = out
-
+                # Need to escape out the escape chars in the resulting string:
+                # https://stackoverflow.com/questions/6867588/how-to-convert-escaped-characters
+                if out:
+                    results = results + "\n" + codecs.getdecoder("unicode_escape")(out)[0]
                 if err:
-                    err = codecs.getdecoder("unicode_escape")(err)[0]
-                    error = f"Error messages from script install script: \n{err}"
-                    return_data['setup_error'] = error
+                    errors = errors + "\n" + codecs.getdecoder("unicode_escape")(err)[0]
 
-                logging.info(f"Results of bash install pythonScript for {pythonScript.name}: \n\n{out}")
+            return_data['setup_message'] = results
+
+            if errors:
+                return_data['setup_error'] = errors
+
+            return_data['setupscript_installed'] = True
 
     except Exception as e:
         error = f"Error setting running python script installers.\nScript ID:{scriptId}.\nError: \n{e}"
         logging.error(error)
         return_data['error'] = error
+        return_data['setupscript_installed'] = False
 
     return return_data
-
-
-# expecting results of importEdgesFromYAML which should be args[0] of dict with 'script_lookup', 'node_lookup' and 'edge_lookup'
-@celery_app.task(base=FaultTolerantTask, name="Setup Pipeline Scripts")
-def setupPipelineScripts(*args, pipelineId=-1, **kwargs):
-
-    logger.info(f"setupPipelineScripts - for pipelineId {pipelineId}, args are: {args}")
-
-    if len(args)>0:
-        previous_data = args[0]
-    else:
-        previous_data = {}
-
-    try:
-
-        if not previous_data['error']:
-
-            logger.info("No error in pipeline detected")
-            setup_tasks = []
-
-            for importScriptId, scriptId in previous_data['script_lookup'].items():
-                setup_tasks.append(
-                    chord(
-                        group([
-                            runScriptEnvVarInstaller.si(scriptId=scriptId),
-                            runScriptSetupScript.si(scriptId=scriptId),
-                            runScriptPackageInstaller.si(scriptId=scriptId)
-                        ]),
-                        unlockScript.s(scriptId=scriptId)
-                    )
-                )
-
-            chain(setup_tasks).apply_async()
-
-    except Exception as e:
-        error = f"Error trying to setup pipelineScripts: {e}"
-        logging.error(error)
-        previous_data['error'] = error
-
-    return previous_data
 
 
 @celery_app.task(base=FaultTolerantTask, name="Run Script Env Variable Installer")
@@ -320,12 +288,15 @@ def runScriptEnvVarInstaller(*args, scriptId=-1, oldScriptId=-1, env_variables=N
             logging.info(f"Adding env_var {e} with value {v}")
             os.environ[e] = v
 
+        return_data['envs_installed'] = True
+
         return return_data
 
     except Exception as e:
         error = f"Error setting running python script installers.\nScript ID:{scriptId}.\nError: \n{e}"
         logging.error(error)
         return_data['error'] = error
+        return_data['envs_installed'] = False
         return return_data
 
 
@@ -732,7 +703,7 @@ def lockScript(*args, scriptId=-1, oldScriptId=-1, **kwargs):
         else:
             pythonScript = PythonScript.objects.get(id=scriptId)
 
-        pythonScript.locked = False
+        pythonScript.locked = True
         pythonScript.save()
 
     except Exception as err:
@@ -746,7 +717,7 @@ def lockScript(*args, scriptId=-1, oldScriptId=-1, **kwargs):
 # Unlock a script after setup is complete. If error is detected in args[0] from earlier step... then error lock script instead
 # of unlocking it and add error code to the model.
 @celery_app.task(base=FaultTolerantTask, name="Unlock Script")
-def unlockScript(*args, scriptId=-1, oldScriptId=-1, **kwargs):
+def unlockScript(*args, scriptId=-1, oldScriptId=-1, installer=False, **kwargs):
 
     logger.info(f"unlockScript - scriptId {scriptId} and oldScriptId {oldScriptId}: {args}")
     return_data = {}
@@ -779,14 +750,25 @@ def unlockScript(*args, scriptId=-1, oldScriptId=-1, **kwargs):
 
         pythonScript = PythonScript.objects.get(id=id)
         pythonScript.install_error='error' in return_data and bool(return_data['error'])
-        pythonScript.install_error_code=return_data['error'] if 'error' in return_data else False
+        pythonScript.install_error_code=return_data['error'] if 'error' in return_data and return_data['error'] else False
         pythonScript.setup_log=setup_log
         pythonScript.installer_log=installer_log
-        pythonScript.package_needs_install=False
-        pythonScript.script_needs_install=False
-        pythonScript.env_variables_need_install=False
-        pythonScript.locked=False
+
+        if 'packages_installed' in return_data and return_data['packages_installed']:
+            pythonScript.package_needs_install=False
+
+        if 'setupscript_installed' in return_data and return_data['setupscript_installed']:
+            pythonScript.script_needs_install=False
+
+        if 'envs_installed' in return_data and return_data['envs_installed']:
+            pythonScript.env_variables_need_install=False
+
+        #If this was the installer calling this unlock, unlock the locked property:
+        if installer:
+            pythonScript.locked=False
+
         pythonScript.save()
+
         logging.info("Installer Done!")
 
     except Exception as err:
@@ -1603,8 +1585,11 @@ def importScriptFromYAML(*Args, scripts=[], **kwargs):
                 supported_file_types=script['supported_file_types'],
                 script=script['script'],
                 required_packages=script['required_packages'],
+                package_needs_install=bool(script['required_packages']),
                 setup_script=script['setup_script'],
+                script_needs_install=bool(script['setup_script']),
                 env_variables=script['env_variables'],
+                env_variables_need_install = bool(script['env_variables'])
             )
 
             # Need to map the id in the YAML file to the id actually created by Django as there's almost no chance they'll be the same

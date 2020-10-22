@@ -6,8 +6,8 @@ from pyaml import unicode
 from yaml.representer import SafeRepresenter
 from celery import chain, chord, group
 from .models import PythonScript, PipelineNode, Edge, Pipeline
-from Jobs.tasks.tasks import importScriptFromYAML, importNodesFromYAML, importEdgesFromYAML, setupPipelineScripts, \
-    unlockPipeline, recalculatePipelineDigraph, linkRootNodeFromYAML, runScriptEnvVarInstaller, runScriptSetupScript, \
+from Jobs.tasks.tasks import importScriptFromYAML, importNodesFromYAML, importEdgesFromYAML, unlockPipeline, \
+    recalculatePipelineDigraph, linkRootNodeFromYAML, runScriptEnvVarInstaller, runScriptSetupScript, \
     runScriptPackageInstaller, unlockScript, lockScript
 
 logger = logging.getLogger(__name__)
@@ -182,7 +182,7 @@ def importPipelineFromYAML(yamlString):
                 runScriptEnvVarInstaller.s(oldScriptId=script['id']),
                 runScriptSetupScript.s(oldScriptId=script['id']),
                 runScriptPackageInstaller.s(oldScriptId=script['id']),
-                unlockScript.s(oldScriptId=script['id'])
+                unlockScript.s(oldScriptId=script['id'], installer=True)
             ])
 
         #Setup all the relationships asynchronously, otherwise this request could take forever to complete

@@ -115,7 +115,7 @@ class PythonScript(models.Model):
     )
 
     install_error = models.BooleanField("Installation Error", default=False, blank=True)
-    install_error_code = models.TextField("Installation Error Description", blank=True, default="")
+    install_error_code = models.TextField("Installation Error Description", blank=False, default="")
 
     # Description of the python script
     description = models.TextField("Script Description", blank=True, default="")
@@ -157,6 +157,9 @@ class PythonScript(models.Model):
     # place to store the last results of the setup script
     setup_log = models.TextField("Setup Log", blank=True, default="")
 
+    def installing(self):
+        return self.package_needs_install or self.script_needs_install or self.env_variables_need_install
+
     def __str__(self):
         return self.human_name
 
@@ -164,28 +167,30 @@ class PythonScript(models.Model):
     def save(self, *args, **kwargs):
 
         # if this is an existing model... check for changes to setup_script or required_packages
-        if self.pk:
+        if not self.locked:
 
-            orig = PythonScript.objects.get(pk=self.pk)
-            if self.required_packages != "" and self.required_packages != orig.required_packages:
-                self.package_needs_install=True
+            if self.pk:
 
-            if self.setup_script != "" and self.setup_script != orig.setup_script:
-                self.script_needs_install = True
+                orig = PythonScript.objects.get(pk=self.pk)
+                if self.required_packages != "" and self.required_packages != orig.required_packages:
+                    self.package_needs_install=True
 
-            if self.env_variables != "" and self.env_variables != orig.env_variables:
-                self.env_variables_need_install = True
+                if self.setup_script != "" and self.setup_script != orig.setup_script:
+                    self.script_needs_install = True
 
-        # If this is a new model, any content in required_packages, setup_script or env_variables triggers installer flags
-        else:
-            if self.required_packages != "":
-                self.package_needs_install = True
+                if self.env_variables != "" and self.env_variables != orig.env_variables:
+                    self.env_variables_need_install = True
 
-            if self.setup_script != "":
-                self.script_needs_install = True
+            # If this is a new model, any content in required_packages, setup_script or env_variables triggers installer flags
+            else:
+                if self.required_packages != "":
+                    self.package_needs_install = True
 
-            if self.env_variables != "":
-                self.env_variables_need_install = True
+                if self.setup_script != "":
+                    self.script_needs_install = True
+
+                if self.env_variables != "":
+                    self.env_variables_need_install = True
 
         super(PythonScript, self).save(*args, **kwargs)
 

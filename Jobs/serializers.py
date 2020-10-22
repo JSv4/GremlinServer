@@ -49,7 +49,7 @@ class ProjectSerializer(serializers.Serializer):
 class PythonScriptSerializer(serializers.ModelSerializer):
 
     owner = serializers.ReadOnlyField(source='owner.username')
-    locked = serializers.SerializerMethodField()
+    installing = serializers.SerializerMethodField()
 
     class Meta:
         model = PythonScript
@@ -70,16 +70,20 @@ class PythonScriptSerializer(serializers.ModelSerializer):
             'env_variables',
             'installer_log',
             'setup_log',
-            'locked'
+            'locked',
+            'installing'
         ]
-        read_only_fields = ['id', 'setup_log', 'owner', 'locked']
+        read_only_fields = ['id', 'setup_log', 'owner', 'locked', 'installing']
 
+    def installing(self, obj):
+        return self.installing()
 
 class PythonScriptSummarySerializer_READ_ONLY(serializers.ModelSerializer):
 
     owner = serializers.HiddenField(
         default=serializers.CurrentUserDefault()
     )
+    installing = serializers.SerializerMethodField()
 
     class Meta:
         model = PythonScript
@@ -93,6 +97,7 @@ class PythonScriptSummarySerializer_READ_ONLY(serializers.ModelSerializer):
             'description',
             'mode',
             'locked',
+            'installing',
             'owner'
         ]
         read_only_fields = [
@@ -104,15 +109,19 @@ class PythonScriptSummarySerializer_READ_ONLY(serializers.ModelSerializer):
             'description',
             'mode',
             'locked',
+            'installing',
             'owner'
         ]
 
+    def locked(self, obj):
+        return self.installing()
 
 class PythonScriptSummarySerializer(serializers.ModelSerializer):
 
     owner = serializers.HiddenField(
         default=serializers.CurrentUserDefault()
     )
+    installing = serializers.SerializerMethodField()
 
     class Meta:
         model = PythonScript
@@ -126,10 +135,13 @@ class PythonScriptSummarySerializer(serializers.ModelSerializer):
             'description',
             'mode',
             'locked',
+            'installing',
             'owner'
         ]
-        read_only_fields = ['id', 'owner', 'locked']
+        read_only_fields = ['id', 'owner', 'locked', 'installing']
 
+    def installing(self, obj):
+        return self.installing()
 
 class DocumentSerializer(serializers.ModelSerializer):
 
