@@ -940,7 +940,8 @@ class PipelineViewSet(viewsets.ModelViewSet):
     @action(methods=['get'], detail=True)
     def ExportToYAML(self, request, pk=None):
         try:
-            filename = f"Pipeline-{pk}.yaml"
+            pipeline = Pipeline.objects.get(pk=pk)
+            filename = f"{pipeline.name}.yaml"
             myYaml = io.StringIO()
             yaml = YAML()
             yaml.preserve_quotes = False
@@ -948,6 +949,7 @@ class PipelineViewSet(viewsets.ModelViewSet):
             response = HttpResponse(myYaml.getvalue(), content_type='text/plain',
                                     status=status.HTTP_200_OK)
             response['Content-Disposition'] = 'attachment; filename={0}'.format(filename)
+            response['filename'] = filename
             return response
 
         except Exception as e:

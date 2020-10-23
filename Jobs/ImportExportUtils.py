@@ -2,9 +2,7 @@ import json
 import logging
 from ruamel.yaml import YAML
 from ruamel.yaml.scalarstring import LiteralScalarString
-from pyaml import unicode
-from yaml.representer import SafeRepresenter
-from celery import chain, chord, group
+from celery import chain
 from .models import PythonScript, PipelineNode, Edge, Pipeline
 from Jobs.tasks.tasks import importScriptFromYAML, importNodesFromYAML, importEdgesFromYAML, unlockPipeline, \
     recalculatePipelineDigraph, linkRootNodeFromYAML, runScriptEnvVarInstaller, runScriptSetupScript, \
@@ -179,6 +177,7 @@ def importPipelineFromYAML(yamlString):
         script_setup_steps = []
         for script in data['scripts']:
             script_setup_steps.extend([
+                lockScript.s(oldScriptId=script['id']),
                 runScriptEnvVarInstaller.s(oldScriptId=script['id']),
                 runScriptSetupScript.s(oldScriptId=script['id']),
                 runScriptPackageInstaller.s(oldScriptId=script['id']),

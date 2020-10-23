@@ -5,7 +5,8 @@ from django.db.models.signals import post_save, post_delete, pre_save
 class JobsConfig(AppConfig):
     name = 'Jobs'
 
-    #importing signals here per
+    # SIGNALS to trigger long-running tasks on certain DB changes
+    #
     # official celery docs:
     # https://docs.djangoproject.com/en/3.0/topics/signals/
     # and, this excellent guide:

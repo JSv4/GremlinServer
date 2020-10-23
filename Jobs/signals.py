@@ -1,18 +1,15 @@
 from celery import chain
-import json
 from django.db import transaction
 from django.core.exceptions import ObjectDoesNotExist
 from .serializers import EdgeSerializer, PythonScriptSerializer
 
-from .tasks.task_helpers import buildNodePipelineRecursively
 from .tasks.tasks import runJob, extractTextForDoc, \
     runScriptEnvVarInstaller, runScriptPackageInstaller, recalculatePipelineDigraph, unlockScript, lockScript, \
     runScriptSetupScript
-from .models import PipelineNode, Pipeline, PythonScript, Edge
+from .models import Pipeline
 
 # Excellent django logging guidance here: https://docs.python.org/3/howto/logging-cookbook.html
 import logging
-
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
@@ -72,7 +69,7 @@ def update_digraph_on_edge_change(sender, instance, **kwargs):
     try:
         pipeline = Pipeline.objects.get(pk=instance.parent_pipeline_id)
         if pipeline and not pipeline.locked:
-            recalculatePipelineDigraph.delay(pipelineId=instance.parent_pipeline.id)
+            transaction.on_commit(recalculatePipelineDigraph.delay(pipelineId=instance.parent_pipeline.id))
         else:
             print(f"Detected change on edge {instance.id} yet its parent pipeline is LOCKED. Do nothing.")
 
@@ -84,11 +81,11 @@ def update_digraph_on_edge_change(sender, instance, **kwargs):
 def update_digraph_on_node_create(sender, instance, created, **kwargs):
     if created and not instance.parent_pipeline.locked if instance.parent_pipeline else False:
         print("Node was created... try to update parent_pipeline digraph")
-        recalculatePipelineDigraph.delay(pipelineId=instance.parent_pipeline.id)
+        transaction.on_commit(recalculatePipelineDigraph.delay(pipelineId=instance.parent_pipeline.id))
 
 
 # When a node is deleted... rerender the parent_pipeline digraph property... e
 # That shows the digraph structure of the job... everything is keyed off of it.
 def update_digraph_on_node_delete(sender, instance, **kwargs):
     print("Node was deleted... try to update parent_pipeline digraph")
-    recalculatePipelineDigraph.delay(pipelineId=instance.parent_pipeline.id)
+    transaction.on_commit(recalculatePipelineDigraph.delay(pipelineId=instance.parent_pipeline.id))

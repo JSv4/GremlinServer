@@ -35,7 +35,13 @@ Installation
     - **SendGrid API Key** - If you want to enable password recovery, username recovery email updates and other features
       that depend on sending e-mails, you'll need a SendGrid API key.
 
-- Installation steps
+- Install Prerequisites (Assuming Ubuntu 18.04)
+    - First, setup Docker:
+        - I recommend you follow Digital Ocean's excellent instructions at https://www.digitalocean.com/community/tutorials/how-to-install-and-use-docker-on-ubuntu-18-04
+    - Next, setup Docker Compose:
+        - Again, highly recommended you follow the Digital Ocean walkthrough here: https://www.digitalocean.com/community/tutorials/how-to-install-docker-compose-on-ubuntu-18-04
+
+- Gremlin Installation steps
     - In your terminal, cd to the directory you'd like to run Gremlin from.
     - Clone the latest repository::
 
