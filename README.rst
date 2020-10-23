@@ -21,13 +21,8 @@ Installation
 1.0 release.**
 
 - Requirements
-    - Django > 3.1
-    - Celery 4
-    - Python > 3.6
-    - Redis
-    - Postgres
     - Docker
-    - Docker-compose
+    - Docker-Compose
 
 - Optional Requirements
     - **Amazon AWS S3 Bucket** - This is optional in theory, though I've not tested the system storing files locally.
@@ -117,90 +112,29 @@ Installation
         POSTGRES_USER=<<admin username>>
         POSTGRES_PASSWORD=<<admin password>>
 
-- Docker-Compose Install - now, return to the main Gremlin directory and run the Docker-Compose file::
+- Docker-Compose Install - now, return to the main Gremlin directory::
 
         cd ../..
 
+- Now, build Gremlin::
 
-Moved to settings_.
+    docker-compose -f production.yml build
 
-.. _settings: http://cookiecutter-django.readthedocs.io/en/latest/settings.html
+- Now, run any migrations::
 
-Basic Commands
---------------
+    docker-compose -f production.yml run --rm django python manage.py makemigrations
+    docker-compose -f production.yml run --rm django python manage.py migrate
 
-Setting Up Your Users
-^^^^^^^^^^^^^^^^^^^^^
+- Create an admin / superuser account by typing the command below and following the prompts::
 
-* To create a **normal user account**, just go to Sign Up and fill out the form. Once you submit it, you'll see a "Verify Your E-mail Address" page. Go to your console to see a simulated email verification message. Copy the link into your browser. Now the user's email should be verified and ready to go.
+    docker-compose -f production.yml run --rm django python manage.py createsuperuser
 
-* To create an **superuser account**, use this command::
+- Now launch GREMLIN::
 
-    $ python manage.py createsuperuser
+    docker-compose -f production.yml up
 
-For convenience, you can keep your normal user logged in on Chrome and your superuser logged in on Firefox (or similar), so that you can see how the site behaves for both kinds of users.
-
-Type checks
-^^^^^^^^^^^
-
-Running type checks with mypy:
-
-::
-
-  $ mypy gremlin_gplv3
-
-Test coverage
-^^^^^^^^^^^^^
-
-To run the tests, check your test coverage, and generate an HTML coverage report::
-
-    $ coverage run -m pytest
-    $ coverage html
-    $ open htmlcov/index.html
-
-Running tests with py.test
-~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-::
-
-  $ pytest
-
-Live reloading and Sass CSS compilation
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Moved to `Live reloading and SASS compilation`_.
-
-.. _`Live reloading and SASS compilation`: http://cookiecutter-django.readthedocs.io/en/latest/live-reloading-and-sass-compilation.html
-
-
-
-Celery
-^^^^^^
-
-This app comes with Celery.
-
-To run a celery worker:
-
-.. code-block:: bash
-
-    cd gremlin_gplv3
-    celery -A config.celery_app worker -l info
-
-Please note: For Celery's import magic to work, it is important *where* the celery commands are run. If you are in the same folder with *manage.py*, you should be right.
-
-
-
-
-
-Deployment
-----------
-
-The following details how to deploy this application.
-
-
-
-Docker
-^^^^^^
+Further Guidance
+^^^^^^^^^^^^^^^^
 
 See detailed `cookiecutter-django Docker documentation`_.
 

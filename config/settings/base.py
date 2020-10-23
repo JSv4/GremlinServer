@@ -2,6 +2,7 @@
 Base settings to build other settings files upon.
 """
 from pathlib import Path
+from datetime import timedelta
 from corsheaders.defaults import default_headers
 
 import environ
@@ -379,6 +380,14 @@ REST_FRAMEWORK = {
             'name': 'Authorization'
         }
     }
+}
+
+#Simple JWT Settings - library supports far more.
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
+    'ROTATE_REFRESH_TOKENS': False,
+    'BLACKLIST_AFTER_ROTATION': True,
 }
 
 # Your stuff...
