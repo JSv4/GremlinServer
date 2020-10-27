@@ -303,7 +303,6 @@ class Full_PipelineSerializer(serializers.ModelSerializer):
                   'supported_files', 'pipelinenodes', 'root_node', 'scale', 'x_offset', 'y_offset', 'digraph']
         read_only_fields = ['id', 'schema', 'total_steps', 'owner', 'root_node', 'digraph']
 
-
 class ResultSummarySerializer(serializers.ModelSerializer):
 
     owner = serializers.HiddenField(

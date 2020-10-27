@@ -1,3 +1,4 @@
+# Python Modules
 import logging
 import mimetypes
 import os, io, zipfile, sys
@@ -5,16 +6,15 @@ from zipfile import ZipFile
 import json
 from datetime import datetime
 
-#simple-jwt views to override
-from django.http.response import HttpResponse
-from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
-from rest_framework_simplejwt.views import TokenObtainPairView
-
-# YAML stuff
+# YAML Stuff
 from ruamel.yaml import YAML
 
+# Django Stuff
+from django.http.response import HttpResponse
 from django.db.models import Count, Prefetch
 from django.http import FileResponse, JsonResponse
+
+# Django Rest Framework Stuff
 from rest_framework import status
 from rest_framework import viewsets, renderers
 from rest_framework.decorators import action
@@ -26,22 +26,24 @@ from rest_framework.parsers import FileUploadParser, MultiPartParser
 from rest_framework.views import APIView
 from rest_framework.generics import GenericAPIView
 from rest_framework.schemas.openapi import AutoSchema
-from rest_framework import mixins
 
-from Jobs import serializers
+# Gremlin Jobs Models and Serializers
 from Jobs.ImportExportUtils import exportScriptYAMLObj, exportPipelineNodeToYAMLObj, \
     exportPipelineEdgeToYAMLObj, exportPipelineToYAMLObj, importPipelineFromYAML
 from Jobs.tasks.task_helpers import transformStepInputs
-from gremlin_gplv3.users.models import User
-from gremlin_gplv3.utils.filters import PipelineFilter, JobFilter
 from .models import Document, Job, Result, PythonScript, PipelineNode, Pipeline, TaskLogEntry, JobLogEntry, Edge
-from .paginations import MediumResultsSetPagination, LargeResultsSetPagination, SmallResultsSetPagination
+from .paginations import MediumResultsSetPagination, SmallResultsSetPagination
 from .serializers import DocumentSerializer, JobSerializer, ResultSummarySerializer, PythonScriptSerializer, \
-    PipelineSerializer, PipelineStepSerializer, PythonScriptSummarySerializer, LogSerializer, ResultSerializer, \
-    PythonScriptSummarySerializer, PipelineSerializer, PipelineStepSerializer, \
-    ProjectSerializer, Full_PipelineSerializer, Full_PipelineStepSerializer, EdgeSerializer, PipelineSummarySerializer, \
+    LogSerializer, ResultSerializer, PythonScriptSummarySerializer, PipelineSerializer, ProjectSerializer, \
+    Full_PipelineSerializer, Full_PipelineStepSerializer, EdgeSerializer, PipelineSummarySerializer, \
     JobPageSerializer
-from .tasks.tasks import runJob, recalculatePipelineDigraph, runJobToNode
+from .tasks.tasks import recalculatePipelineDigraph, runJobToNode
+
+# Gremlin User Models and Serializers
+from gremlin_gplv3.users.models import User
+
+# Shared utility classes like filters
+from gremlin_gplv3.utils.filters import PipelineFilter, JobFilter
 
 mimetypes.init()
 mimetypes.knownfiles
@@ -103,16 +105,7 @@ class ListInputModelMixin(object):
 
 
 class DocumentViewSet(viewsets.ModelViewSet):
-    """
-    retrieve:
-    Get a given document object.
 
-    list:
-    List all of the documents.
-
-    create:
-    Create a new document object.
-    """
     queryset = Document.objects.filter().prefetch_related('job').order_by('-name')
     filter_fields = ['id', 'name', 'extracted', 'job']
 
@@ -144,7 +137,6 @@ class DocumentViewSet(viewsets.ModelViewSet):
         """
             Download the document file linked to this document model.
         """
-
         document = Document.objects.filter(pk=pk)[0]
 
         # get an open file handle (I'm just using a file attached to the model for this example):
@@ -170,8 +162,6 @@ class DocumentViewSet(viewsets.ModelViewSet):
         except Exception as e:
             return Response(e,
                             status=status.HTTP_400_BAD_REQUEST)
-
-# This
 
 
 class LogViewSet(viewsets.ModelViewSet):
@@ -626,6 +616,7 @@ class PythonScriptViewSet(viewsets.ModelViewSet):
             return Response(e,
                             status=status.HTTP_400_BAD_REQUEST)
 
+
     # Export the script as a gremlin archive
     @action(methods=['get'], detail=True)
     def exportArchive(self, request, pk=None):
@@ -855,7 +846,7 @@ class PipelineViewSet(viewsets.ModelViewSet):
     pagination_class = SmallResultsSetPagination
     permission_classes = [IsAuthenticated & WriteOnlyIfNotAdminOrEng]
     filterset_class = PipelineFilter
-    serializer_class = PipelineSummarySerializer #Was Full_PipelineSerializer... This shouldn't be happening, no? We fetch pipeline data as needed.
+    serializer_class = PipelineSummarySerializer
 
     # Clears any existing test jobs and creates a new one.
     # Clears any existing test jobs and creates a new one.
@@ -955,6 +946,16 @@ class PipelineViewSet(viewsets.ModelViewSet):
         except Exception as e:
             return Response(e,
                             status=status.HTTP_400_BAD_REQUEST)
+
+    @action(methods=['get'], detail=True)
+    def scripts(self, request, pk=None):
+        try:
+            pipeline=Pipeline.objects.get(pk=pk)
+            scripts = PythonScript.objects.filter(pipelinenode__parent_pipeline=pipeline)
+            return Response(PythonScriptSummarySerializer(scripts, many=True).data)
+
+        except Exception as e:
+            return JsonResponse({"error": "ERROR: {0}".format(e)})
 
 # This mixin lets DRF inbound serialized determine if a list or single object is being passed in... IF, it's a list,
 # will instantiate any serializer with the many=True option, allowing for bulk updates and creates.
