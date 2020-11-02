@@ -170,6 +170,19 @@ class PipelineSerializer(serializers.ModelSerializer):
                   'supported_files', 'root_node', 'scale','x_offset', 'y_offset']
         read_only_fields = ['id', 'total_steps', 'schema', 'owner', 'supported_files', 'root_node', 'locked']
 
+# includes nested edge and node objects. These are NOT paginated and are always expected you'd load them for a given pipeline.
+# Most likely number will be <100 and probably well under 20 in vast majority of cases. This should not be a very taxing request.
+class PipelineDigraphSerializer(serializers.ModelSerializer):
+
+    owner = serializers.ReadOnlyField(source='owner.id')
+
+    class Meta:
+        model = Pipeline
+        depth=1
+        fields = ['id', 'name', 'schema', 'description', 'total_steps', 'owner', 'production', 'locked',
+                  'supported_files', 'root_node', 'scale','x_offset', 'y_offset', 'edges', 'nodes']
+        read_only_fields = ['id', 'total_steps', 'schema', 'owner', 'supported_files', 'root_node', 'locked']
+
 class PipelineSerializer_READONLY(serializers.ModelSerializer):
 
     owner = serializers.ReadOnlyField(source='owner.username')
@@ -188,7 +201,7 @@ class JobSerializer(serializers.ModelSerializer):
     owner = serializers.HiddenField(
         default=serializers.CurrentUserDefault()
     )
-    pipeline = serializers.PrimaryKeyRelatedField(many=False, queryset=Pipeline.objects.all())
+    pipeline = PipelineSerializer()
     num_docs = serializers.IntegerField(read_only=True)
 
     class Meta:
@@ -201,28 +214,6 @@ class JobSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'creation_time', 'started', 'error', 'finished',
                             'status', 'start_time', 'stop_time', 'file','completed_tasks','task_count', 'type',
                             'owner', 'num_docs']
-
-class JobPageSerializer(serializers.ModelSerializer):
-
-    owner = serializers.HiddenField(
-        default=serializers.CurrentUserDefault()
-    )
-    pipeline = serializers.PrimaryKeyRelatedField(many=False, queryset=Pipeline.objects.all())
-    pipeline_description = serializers.ReadOnlyField(source='pipeline.description')
-    pipeline_name = serializers.ReadOnlyField(source='pipeline.name')
-    num_docs = serializers.IntegerField(read_only=True)
-
-    class Meta:
-        model = Job
-
-        fields = ['id', 'name', 'creation_time', 'pipeline_name', 'pipeline_description', 'pipeline', 'queued', 'started',
-                  'error', 'finished', 'status', 'start_time', 'stop_time', 'job_inputs', 'file',
-                  'completed_tasks','task_count', 'type', 'owner', 'num_docs', 'notification_email']
-
-        read_only_fields = ['id', 'creation_time', 'started', 'error', 'finished', 'pipeline_name', 'pipeline_description',
-                            'pipeline', 'status', 'start_time', 'stop_time', 'file','completed_tasks','task_count', 'type',
-                            'owner', 'num_docs']
-
 
 class EdgeSerializer(serializers.ModelSerializer):
 

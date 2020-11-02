@@ -3,6 +3,7 @@ import logging, os, operator
 from celery import chain
 from django.db import models
 from django import utils
+from django.utils import timezone
 from django.contrib.auth import get_user_model
 from django.utils.translation import ugettext_lazy as _
 
@@ -217,6 +218,7 @@ class Job(models.Model):
 
     # Timing variables
     creation_time = models.DateTimeField("Job Creation Date and Time", default=utils.timezone.now)
+    modified = models.DateTimeField(default=timezone.now, blank=True)
 
     owner = models.ForeignKey(
         get_user_model(),
@@ -251,6 +253,13 @@ class Job(models.Model):
 
     def __str__(self):
         return self.name
+
+    def save(self, *args, **kwargs):
+        ''' On save, update timestamps '''
+        if not self.id:
+            self.created = timezone.now()
+        self.modified = timezone.now()
+        return super(Job, self).save(*args, **kwargs)
 
     def pipeline_steps(self):
         try:
@@ -431,7 +440,7 @@ class PipelineNode(models.Model):
     y_coord = models.FloatField("Y Coordinate", default=0, blank=False)
 
     # Process variables - Will deprecate step_number
-    parent_pipeline = models.ForeignKey("Pipeline", related_name="pipelinenodes", null=True, on_delete=models.SET_NULL)
+    parent_pipeline = models.ForeignKey("Pipeline", related_name="nodes", null=True, on_delete=models.SET_NULL)
     step_number = models.IntegerField(blank=False, default=-1)
 
     ### Methods #####################################################################################
@@ -474,7 +483,7 @@ class Edge(models.Model):
     start_node = models.ForeignKey(PipelineNode, null=True, related_name='out_edges', on_delete=models.CASCADE)
     end_node = models.ForeignKey(PipelineNode, null=True, related_name='in_edges', on_delete=models.CASCADE)
     transform_script = models.TextField("Data Transform Script", blank=True, default="")
-    parent_pipeline = models.ForeignKey(Pipeline, null=True, blank=False, related_name='pipeline_edges',
+    parent_pipeline = models.ForeignKey(Pipeline, null=True, blank=False, related_name='edges',
                                         on_delete=models.CASCADE)
     locked = models.BooleanField("Object locked (backend performing updates)...", default=False, blank=True)
 

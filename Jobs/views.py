@@ -36,7 +36,7 @@ from .paginations import MediumResultsSetPagination, SmallResultsSetPagination
 from .serializers import DocumentSerializer, JobSerializer, ResultSummarySerializer, PythonScriptSerializer, \
     LogSerializer, ResultSerializer, PythonScriptSummarySerializer, PipelineSerializer, ProjectSerializer, \
     Full_PipelineSerializer, Full_PipelineStepSerializer, EdgeSerializer, PipelineSummarySerializer, \
-    JobPageSerializer
+    PipelineDigraphSerializer
 from .tasks.tasks import recalculatePipelineDigraph, runJobToNode
 
 # Gremlin User Models and Serializers
@@ -250,20 +250,20 @@ class ProjectViewSet(GenericAPIView):
             return Response(serializer.data, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_401_UNAUTHORIZED)
 
-class PaginatedJobViewSet(viewsets.ModelViewSet):
+class JobViewSet(viewsets.ModelViewSet):
 
     queryset = Job.objects.annotate(num_docs=Count('document')).select_related('owner', 'pipeline').all()
     pagination_class = MediumResultsSetPagination
-    serializer_class = JobPageSerializer
+    serializer_class = JobSerializer
     permission_classes = [IsAuthenticated]
     filterset_class= JobFilter
 
     def get_queryset(self, *args, **kwargs):
         # for legal engineers and lawyers, don't show them jobs or docs that don't belong to them.
         if self.request.user.role == "LEGAL_ENG" or self.request.user.role == "LAWYER":
-            return self.queryset.filter(owner=self.request.user.id)
+            return self.queryset.filter(owner=self.request.user.id).order_by('-creation_time')
         else:
-            return self.queryset
+            return self.queryset.order_by('-creation_time')
 
     # Super useful docs on routing (unsurprisingly): https://www.django-rest-framework.org/api-guide/routers/
     # Also, seems like there's a cleaner way to do this? Working for now but I don't like it doesn't integrate with Django filters.
@@ -283,23 +283,6 @@ class PaginatedJobViewSet(viewsets.ModelViewSet):
         response['Filename'] = os.path.basename(job.file.name)
 
         return response
-
-class AllJobViewSet(viewsets.ModelViewSet):
-
-    queryset = Job.objects.annotate(num_docs=Count('document')).select_related('owner', 'pipeline').all().order_by(
-        '-name')
-    filter_fields = ['name', 'id', 'status', 'started', 'queued', 'finished', 'type']
-
-    pagination_class = None
-    serializer_class = JobSerializer
-    permission_classes = [IsAuthenticated]
-
-    def get_queryset(self, *args, **kwargs):
-        # for legal engineers and lawyers, don't show them jobs or docs that don't belong to them.
-        if self.request.user.role == "LEGAL_ENG" or self.request.user.role == "LAWYER":
-            return self.queryset.filter(owner=self.request.user.id)
-        else:
-            return self.queryset
 
     # This action is a shortcut to create a doc and job obj at the same time and immediately run it. For a one-request
     # backend service workflow - e.g. make one request to gremlin to have a document analyzed.
@@ -370,25 +353,6 @@ class AllJobViewSet(viewsets.ModelViewSet):
             return Response(e,
                             status=status.HTTP_400_BAD_REQUEST)
 
-    # Super useful docs on routing (unsurprisingly): https://www.django-rest-framework.org/api-guide/routers/
-    # Also, seems like there's a cleaner way to do this? Working for now but I don't like it doesn't integrate with Django filters.
-    @action(methods=['get'], detail=True, renderer_classes=(PassthroughRenderer,))
-    def download(self, request, pk=None):
-
-        job = Job.objects.filter(pk=pk)[0]
-
-        # get an open file handle (I'm just using a file attached to the model for this example):
-        file_handle = job.file.open()
-
-        # send file
-        filename, file_extension = os.path.splitext(job.file.name)
-        response = FileResponse(file_handle)
-        response['Content-Length'] = job.file.size
-        response['Content-Disposition'] = 'attachment; filename="%s"' % os.path.basename(job.file.name)
-        response['Filename'] = os.path.basename(job.file.name)
-
-        return response
-
     @action(methods=['get'], detail=True)
     def TaskCount(self, request, pk=None):
         try:
@@ -409,7 +373,7 @@ class AllJobViewSet(viewsets.ModelViewSet):
 
     # Creates a JSON object of the results in the form that react-flowchart expects
     @action(methods=['get'], detail=True)
-    def render_results_digraph(self, request, pk=None):
+    def digraph(self, request, pk=None):
 
         try:
             print(f"Returning job ID {pk} pipeline's digraph")
@@ -886,14 +850,13 @@ class PipelineViewSet(viewsets.ModelViewSet):
             return Response(e,
                         status=status.HTTP_400_BAD_REQUEST)
 
-    # Clears any existing test jobs and creates a new one.
     @action(methods=['get'], detail=True)
     def get_full_pipeline(self, request, pk=None):
 
         try:
 
-            pipeline = Pipeline.objects.prefetch_related('pipelinenodes','owner').get(id=pk)
-            serializer = Full_PipelineSerializer(pipeline, many=False)
+            pipeline = Pipeline.objects.prefetch_related('edges','nodes','owner').get(id=pk)
+            serializer = PipelineDigraphSerializer(pipeline, many=False)
             return Response(serializer.data)
 
         except Exception as e:
@@ -1042,7 +1005,7 @@ class PipelineStepViewSet(ListInputModelMixin, viewsets.ModelViewSet):
 
 class EdgeViewSet(ListInputModelMixin, viewsets.ModelViewSet):
     queryset = Edge.objects.all().order_by('id')
-    filter_fields = ['id', 'start_node__id', 'end_node__id']
+    filter_fields = ['id', 'start_node__id', 'end_node__id', 'parent_pipeline__id']
 
     pagination_class = None
     serializer_class = EdgeSerializer
