@@ -1,12 +1,10 @@
 from celery import chain
 from django.db import transaction
-from django.core.exceptions import ObjectDoesNotExist
-from .serializers import EdgeSerializer, PythonScriptSerializer
+from .serializers import PythonScriptSerializer
 
 from .tasks.tasks import runJob, extractTextForDoc, \
-    runScriptEnvVarInstaller, runScriptPackageInstaller, recalculatePipelineDigraph, unlockScript, lockScript, \
+    runScriptEnvVarInstaller, runScriptPackageInstaller, unlockScript, lockScript, \
     runScriptSetupScript
-from .models import Pipeline
 
 # Excellent django logging guidance here: https://docs.python.org/3/howto/logging-cookbook.html
 import logging
@@ -55,37 +53,3 @@ def setup_python_script_after_save(sender, instance, created, **kwargs):
             setup_steps.append(unlockScript.s(scriptId=instance.id, installer=True))
             logger.info(setup_steps)
             transaction.on_commit(lambda: chain(setup_steps).apply_async()) #if we don't do this, looks like unlock was getting pre-save version of model, then saving that over actual "new" values.
-
-
-# When a digraph edge is updated... rerender the digraph property... which is a react flowchart compatible JSON structure
-# That shows the digraph structure of the job... everything is keyed off of it.
-# TODO - what happens if you try to edit multiple nodes at the same time? THIS IS NOT ALLOWED. SIMPLE
-# Django is synchronous by nature. Don't screw with this. If you must, choose another framework.
-def update_digraph_on_edge_change(sender, instance, **kwargs):
-
-    print(f"update_digraph_on_edge_change - sender type {type(sender)} instance is: {instance}")
-    print(EdgeSerializer(instance).data)
-
-    try:
-        pipeline = Pipeline.objects.get(pk=instance.parent_pipeline_id)
-        if pipeline and not pipeline.locked:
-            transaction.on_commit(recalculatePipelineDigraph.delay(pipelineId=instance.parent_pipeline.id))
-        else:
-            print(f"Detected change on edge {instance.id} yet its parent pipeline is LOCKED. Do nothing.")
-
-    except ObjectDoesNotExist as e:
-        print(f"Can't update pipeline on edge delete: {e}.\nThis is a sign digraph update was called in process of deleting a pipeline.")
-
-# When a node is created... rerender the parent_pipeline digraph property... e
-# That shows the digraph structure of the job... everything is keyed off of it.
-def update_digraph_on_node_create(sender, instance, created, **kwargs):
-    if created and not instance.parent_pipeline.locked if instance.parent_pipeline else False:
-        print("Node was created... try to update parent_pipeline digraph")
-        transaction.on_commit(recalculatePipelineDigraph.delay(pipelineId=instance.parent_pipeline.id))
-
-
-# When a node is deleted... rerender the parent_pipeline digraph property... e
-# That shows the digraph structure of the job... everything is keyed off of it.
-def update_digraph_on_node_delete(sender, instance, **kwargs):
-    print("Node was deleted... try to update parent_pipeline digraph")
-    transaction.on_commit(recalculatePipelineDigraph.delay(pipelineId=instance.parent_pipeline.id))

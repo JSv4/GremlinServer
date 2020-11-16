@@ -195,6 +195,23 @@ class PipelineSerializer_READONLY(serializers.ModelSerializer):
         read_only_fields = ['id', 'name', 'schema', 'description', 'total_steps', 'owner', 'locked'
                             'production', 'supported_files', 'root_node', 'scale','x_offset', 'y_offset']
 
+class JobCreateSerializer(serializers.ModelSerializer):
+    owner = serializers.HiddenField(
+        default=serializers.CurrentUserDefault()
+    )
+    pipeline = serializers.PrimaryKeyRelatedField(many=False, queryset=Pipeline.objects.all(), required=False)
+    num_docs = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = Job
+
+        fields = ['id', 'name', 'creation_time', 'pipeline', 'queued', 'started',
+                  'error', 'finished', 'status', 'start_time', 'stop_time', 'job_inputs', 'file',
+                  'completed_tasks', 'task_count', 'type', 'owner', 'num_docs', 'notification_email']
+
+        read_only_fields = ['id', 'creation_time', 'started', 'error', 'finished',
+                            'status', 'start_time', 'stop_time', 'file', 'completed_tasks', 'task_count', 'type',
+                            'owner', 'num_docs']
 
 class JobSerializer(serializers.ModelSerializer):
 

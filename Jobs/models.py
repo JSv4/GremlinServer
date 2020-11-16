@@ -448,28 +448,6 @@ class PipelineNode(models.Model):
     def __str__(self):
         return self.name
 
-    def save(self, *args, **kwargs):
-
-        # When digraph node *position* is updated, inject the new coordinates into the digraph.
-        # Run synchronously as this should be pretty fast
-        if self.pk is not None:
-
-            orig = PipelineNode.objects.select_related('parent_pipeline').get(pk=self.pk)
-            pipeline = orig.parent_pipeline
-
-            if orig.x_coord != self.x_coord or orig.y_coord != self.y_coord:
-                print(f"Pipeline Node ID #{self.pk} has been moved! Updating parent_pipeline digraph.")
-
-                digraph = {**pipeline.digraph}
-                digraph['nodes'][f'{self.pk}']['position']['x'] = self.x_coord
-                digraph['nodes'][f'{self.pk}']['position']['y'] = self.y_coord
-                pipeline.digraph = digraph
-                pipeline.save()
-
-                print("Node's parent pipeline digraph updated and saved.")
-
-        super(PipelineNode, self).save(*args, **kwargs)
-
 
 # Models connection between pipelinenodes (nodes)
 class Edge(models.Model):
@@ -480,8 +458,8 @@ class Edge(models.Model):
     )
 
     label = models.TextField("Link Label", blank=True, default="")
-    start_node = models.ForeignKey(PipelineNode, null=True, related_name='out_edges', on_delete=models.CASCADE)
-    end_node = models.ForeignKey(PipelineNode, null=True, related_name='in_edges', on_delete=models.CASCADE)
+    start_node = models.ForeignKey(PipelineNode, null=False, related_name='out_edges', on_delete=models.CASCADE)
+    end_node = models.ForeignKey(PipelineNode, null=False, related_name='in_edges', on_delete=models.CASCADE)
     transform_script = models.TextField("Data Transform Script", blank=True, default="")
     parent_pipeline = models.ForeignKey(Pipeline, null=True, blank=False, related_name='edges',
                                         on_delete=models.CASCADE)

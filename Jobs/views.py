@@ -35,7 +35,7 @@ from .models import Document, Job, Result, PythonScript, PipelineNode, Pipeline,
 from .paginations import MediumResultsSetPagination, SmallResultsSetPagination
 from .serializers import DocumentSerializer, JobSerializer, ResultSummarySerializer, PythonScriptSerializer, \
     LogSerializer, ResultSerializer, PythonScriptSummarySerializer, PipelineSerializer, ProjectSerializer, \
-    Full_PipelineSerializer, Full_PipelineStepSerializer, EdgeSerializer, PipelineSummarySerializer, \
+    JobCreateSerializer, Full_PipelineStepSerializer, EdgeSerializer, PipelineSummarySerializer, \
     PipelineDigraphSerializer
 from .tasks.tasks import recalculatePipelineDigraph, runJobToNode
 
@@ -254,9 +254,22 @@ class JobViewSet(viewsets.ModelViewSet):
 
     queryset = Job.objects.annotate(num_docs=Count('document')).select_related('owner', 'pipeline').all()
     pagination_class = MediumResultsSetPagination
-    serializer_class = JobSerializer
     permission_classes = [IsAuthenticated]
     filterset_class= JobFilter
+
+    # mapping serializer into the action
+    serializer_classes = {
+        'list': JobSerializer,
+        'retrieve': JobSerializer,
+        'create': JobCreateSerializer,
+        'update': JobCreateSerializer,
+        'partial_update': JobCreateSerializer,
+        'destroy': JobCreateSerializer
+    }
+    default_serializer_class = JobSerializer  # Your default serializer
+
+    def get_serializer_class(self):
+        return self.serializer_classes.get(self.action, self.default_serializer_class)
 
     def get_queryset(self, *args, **kwargs):
         # for legal engineers and lawyers, don't show them jobs or docs that don't belong to them.
@@ -362,7 +375,17 @@ class JobViewSet(viewsets.ModelViewSet):
             return JsonResponse({'data': {'id': pk, 'error': f"{e}"}})
 
     @action(methods=['get'], detail=True)
-    def get_job_results_with_data(self, request, pk=None):
+    def summary_results(self, request, pk=None):
+        try:
+            results = Result.objects.filter(job=pk)
+            serializer = ResultSummarySerializer(results, many=True)
+            return Response(serializer.data)
+        except Exception as e:
+            return Response(e,
+                            status=status.HTTP_400_BAD_REQUEST)
+
+    @action(methods=['get'], detail=True)
+    def full_results(self, request, pk=None):
         try:
             results = Result.objects.filter(job=pk)
             serializer = ResultSerializer(results, many=True)
