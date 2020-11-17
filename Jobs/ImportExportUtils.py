@@ -4,9 +4,9 @@ from ruamel.yaml import YAML
 from ruamel.yaml.scalarstring import LiteralScalarString
 from celery import chain
 from .models import PythonScript, PipelineNode, Edge, Pipeline
-from Jobs.tasks.tasks import importScriptFromYAML, importNodesFromYAML, importEdgesFromYAML, unlockPipeline, \
-    recalculatePipelineDigraph, linkRootNodeFromYAML, runScriptEnvVarInstaller, runScriptSetupScript, \
-    runScriptPackageInstaller, unlockScript, lockScript
+from Jobs.tasks.tasks import importScriptsFromYAML, importNodesFromYAML, importEdgesFromYAML, unlockPipeline, \
+    linkRootNodeFromYAML, runScriptEnvVarInstaller, runScriptSetupScript, runScriptPackageInstaller, \
+    unlockScript, lockScript
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -165,6 +165,7 @@ def importPipelineFromYAML(yamlString):
 
         parent_pipeline = Pipeline.objects.create(
             locked=True,
+            imported=True,
             name=data['pipeline']['name'],
             description=data['pipeline']['description'],
             scale=data['pipeline']['scale'],
@@ -172,7 +173,7 @@ def importPipelineFromYAML(yamlString):
             y_offset=data['pipeline']['y_offset']
         )
 
-        print("Created pipeline synchronously... Lock object and run setup steps async.")
+        print("Created pipeline synchronously... Then lock object and run setup steps async.")
 
         script_setup_steps = []
         for script in data['scripts']:
@@ -184,22 +185,24 @@ def importPipelineFromYAML(yamlString):
                 unlockScript.s(oldScriptId=script['id'], installer=True)
             ])
 
-        #Setup all the relationships asynchronously, otherwise this request could take forever to complete
+        print("Setup scripts:")
+        print(script_setup_steps)
+
+        # Setup all the relationships asynchronously, otherwise this request could take forever to complete
         # I originally tried to make script_setup_steps a group of chains, where the four script setup tasks
         # for each script (runScriptEnvVarInstaller, runScriptSetupScript, runScriptPackageInstaller and unlockScript)
-        # would be a chort but, if there were multiple script, the different script assembly groups would be grouped
+        # would be a short but, if there were multiple script, the different script assembly groups would be grouped
         # and run in parallel if worker bandwidth were available. Unfortunately, I ran into a weird issue where I had a
         # task that created and launched these chords yet it seemed to run twice and the second call to it would break
         # as it didn't have arguments. Never figured it out and didn't want that to delay the release. This version obv
         # does everything in serial, so it's slower in theory, but these things execute pretty quickly and I expect imports
         # to be rare. Can work on improving this later.
         chain([
-            importScriptFromYAML.si(scripts=data['scripts']),
+            importScriptsFromYAML.si(scripts=data['scripts']),
             importNodesFromYAML.s(nodes=data['nodes'], parentPipelineId=parent_pipeline.id),
             importEdgesFromYAML.s(edges=data['edges'], parentPipelineId=parent_pipeline.id),
             linkRootNodeFromYAML.s(pipeline_data=data['pipeline'], parentPipelineId=parent_pipeline.id),
             *script_setup_steps,
-            recalculatePipelineDigraph.s(pipelineId=parent_pipeline.id),
             unlockPipeline.s(pipelineId=parent_pipeline.id)
         ]).apply_async()
 

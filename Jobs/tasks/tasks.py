@@ -299,144 +299,6 @@ def runScriptEnvVarInstaller(*args, scriptId=-1, oldScriptId=-1, env_variables=N
         return_data['envs_installed'] = False
         return return_data
 
-
-# Rather than tie up the main Django thread calculating a digraph,move it to a separate tasks that can be called
-# from the on_save signal for the pipeline or the
-@celery_app.task(base=FaultTolerantTask, name="Calculate digraph")
-def recalculatePipelineDigraph(*args, pipelineId=-1, **kwargs):
-    print("Recalculate Pipeline Digraph")
-    previous_data = {}
-
-    try:
-
-        if len(args) > 0:
-            previous_data = args[0]
-
-        if not previous_data \
-            or ('error' in previous_data and not previous_data['error']) \
-            or 'error' not in previous_data:
-
-            nodes = PipelineNode.objects.prefetch_related('out_edges', 'in_edges').filter(
-                parent_pipeline__id=pipelineId)
-            edges = Edge.objects.filter(parent_pipeline__id=pipelineId)
-            pipeline = Pipeline.objects.get(pk=pipelineId)
-
-            digraph = {
-                "offset": {
-                    "x": pipeline.x_offset,
-                    "y": pipeline.y_offset,
-                },
-                "type": ["PIPELINE"],
-                "scale": pipeline.scale,
-                "selected": {},
-                "hovered": {},
-            }
-            renderedNodes = {}
-            renderedEdges = {}
-
-            for node in nodes:
-
-                ports = {}
-
-                if node.type == PipelineNode.SCRIPT:
-                    ports = {
-                        "output": {
-                            "id": 'output',
-                            "type": 'output',
-                        },
-                        "input": {
-                            "id": 'input',
-                            "type": 'input',
-                        },
-                    }
-                elif node.type == PipelineNode.ROOT_NODE:
-                    ports = {
-                        "output": {
-                            "id": 'output',
-                            "type": 'output',
-                        },
-                    }
-                # TODO - handle more node types
-
-                print("Try to render node")
-                print(f"Node: {node}")
-                renderedNode = {
-                    "id": f"{node.id}",
-                    "name": node.name,
-                    "settings": node.step_settings,
-                    "input_transform": node.input_transform,
-                    "type": node.type,
-                    "position": {
-                        "x": node.x_coord,
-                        "y": node.y_coord
-                    },
-                    "ports": ports
-                }
-
-                # Only need to handle instances where script is null (e.g. where the node is a root node and there's
-                # no linked script because it's hard coded on the backend
-                if node.type == "ROOT_NODE":
-                    # If the default pre-processor has been overwritten... use linked script details
-                    if node.script == None:
-                        renderedNode["script"] = {
-                            "id": -1,
-                            "human_name": "Pre Processor",
-                            "type": "RUN_ON_JOB_DOCS",
-                            "supported_file_types": "",
-                            "description": "Default pre-processor to ensure docx, doc and pdf files are extracted."
-                        }
-                    # otherwise... provide default values
-                    else:
-                        renderedNode["script"] = {
-                            "id": node.script.id,
-                            "human_name": node.script.human_name,
-                            "type": node.script.type,
-                            "supported_file_types": node.script.supported_file_types,
-                            "description": node.script.description
-                        }
-                else:
-                    if node.script is None:
-                        renderedNode["script"] = None
-                    else:
-                        script = node.script
-                        serializer = PythonScriptSummarySerializer(script, many=False)
-                        renderedNode["script"] = serializer.data
-
-                renderedNodes[f"{node.id}"] = renderedNode
-
-            for edge in edges:
-                renderedEdges[f"{edge.id}"] = {
-                    "id": f"{edge.id}",
-                    "from": {
-                        "nodeId": f"{edge.start_node.id}",
-                        "portId": "output"
-                    },
-                    "to": {
-                        "nodeId": f"{edge.end_node.id}",
-                        "portId": "input"
-                    }
-                }
-
-            digraph['nodes'] = renderedNodes
-            digraph['links'] = renderedEdges
-
-            print("Digraph is: ")
-            print(digraph)
-
-            pipeline.digraph = digraph
-            pipeline.save()
-
-        return previous_data
-
-    except Exception as e:
-        error = "{0} - Error rendering digraph for pipeline ID #{1}: {2}".format(JOB_FAILED_DID_NOT_FINISH,
-                                                                                 pipelineId, e)
-        logger.error(f"recalculatePipelineDigraph: {error}")
-        previous_data['error'] = error
-
-    return previous_data
-
-
 @celery_app.task(base=FaultTolerantTask, name="Run Job To Node")
 def runJobToNode(*args, jobId=-1, endNodeId=-1, **kwargs):
     try:
@@ -668,10 +530,10 @@ def unlockPipeline(*args, pipelineId=-1, **kwargs):
             pipeline.install_error_code = previous_data['error']
 
         else:
-            pipeline.install_error_code = ""
             pipeline.install_error = False
-            pipeline.locked = False
+            pipeline.install_error_code = ""
 
+        pipeline.locked = False
         pipeline.save()
 
     except Exception as err:
@@ -1566,7 +1428,7 @@ def linkRootNodeFromYAML(*args, pipeline_data=None, parentPipelineId=-1, **kwarg
 
 
 @celery_app.task(base=FaultTolerantTask, name="Import Script from YAML")
-def importScriptFromYAML(*Args, scripts=[], **kwargs):
+def importScriptsFromYAML(*Args, scripts=[], **kwargs):
     return_data = {}
     return_data['error'] = None
     script_lookup = {}

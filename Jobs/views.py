@@ -37,7 +37,7 @@ from .serializers import DocumentSerializer, JobSerializer, ResultSummarySeriali
     LogSerializer, ResultSerializer, PythonScriptSummarySerializer, PipelineSerializer, ProjectSerializer, \
     JobCreateSerializer, Full_PipelineStepSerializer, EdgeSerializer, PipelineSummarySerializer, \
     PipelineDigraphSerializer
-from .tasks.tasks import recalculatePipelineDigraph, runJobToNode
+from .tasks.tasks import runJobToNode
 
 # Gremlin User Models and Serializers
 from gremlin_gplv3.users.models import User
@@ -393,20 +393,6 @@ class JobViewSet(viewsets.ModelViewSet):
         except Exception as e:
             return Response(e,
                             status=status.HTTP_400_BAD_REQUEST)
-
-    # Creates a JSON object of the results in the form that react-flowchart expects
-    @action(methods=['get'], detail=True)
-    def digraph(self, request, pk=None):
-
-        try:
-            print(f"Returning job ID {pk} pipeline's digraph")
-            pipeline = Job.objects.get(pk=pk).pipeline
-            return JsonResponse(pipeline.digraph)
-
-        except Exception as e:
-            return Response(e,
-                            status=status.HTTP_400_BAD_REQUEST)
-
 
 class FileResultsViewSet(viewsets.ModelViewSet):
     queryset = Result.objects.select_related('owner', 'job', 'pipeline_node', 'doc').exclude(
@@ -885,33 +871,6 @@ class PipelineViewSet(viewsets.ModelViewSet):
         except Exception as e:
             return Response(e,
                         status=status.HTTP_400_BAD_REQUEST)
-
-    # Creates a JSON object of the form that react-flowchart expects
-    @action(methods=['get'], detail=True)
-    def render_digraph(self, request, pk=None):
-
-        try:
-            pipeline = Pipeline.objects.get(pk=pk)
-            return JsonResponse(pipeline.digraph)
-
-        except Exception as e:
-            return Response(e,
-                        status=status.HTTP_400_BAD_REQUEST)
-
-        # Creates a JSON object of the form that react-flowchart expects
-
-    @action(methods=['get'], detail=True)
-    def refresh_digraph(self, request, pk=None):
-
-        try:
-            print("Try to refresh digraph")
-            recalculatePipelineDigraph.si(pipelineId=pk)
-            pipeline = Pipeline.objects.get(pk=pk)
-            return JsonResponse(pipeline.digraph)
-
-        except Exception as e:
-            return Response(e,
-                            status=status.HTTP_400_BAD_REQUEST)
 
     # Export script as YAML
     @action(methods=['get'], detail=True)

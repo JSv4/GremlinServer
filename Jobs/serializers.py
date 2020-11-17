@@ -167,8 +167,10 @@ class PipelineSerializer(serializers.ModelSerializer):
     class Meta:
         model = Pipeline
         fields = ['id', 'name', 'schema', 'description', 'total_steps', 'owner', 'production', 'locked',
-                  'supported_files', 'root_node', 'scale','x_offset', 'y_offset']
-        read_only_fields = ['id', 'total_steps', 'schema', 'owner', 'supported_files', 'root_node', 'locked']
+                  'supported_files', 'root_node', 'scale','x_offset', 'y_offset',
+                  'install_error', 'install_error_code']
+        read_only_fields = ['id', 'total_steps', 'schema', 'owner', 'supported_files', 'root_node', 'locked',
+                  'install_error', 'install_error_code']
 
 # includes nested edge and node objects. These are NOT paginated and are always expected you'd load them for a given pipeline.
 # Most likely number will be <100 and probably well under 20 in vast majority of cases. This should not be a very taxing request.
@@ -180,8 +182,10 @@ class PipelineDigraphSerializer(serializers.ModelSerializer):
         model = Pipeline
         depth=1
         fields = ['id', 'name', 'schema', 'description', 'total_steps', 'owner', 'production', 'locked',
-                  'supported_files', 'root_node', 'scale','x_offset', 'y_offset', 'edges', 'nodes']
-        read_only_fields = ['id', 'total_steps', 'schema', 'owner', 'supported_files', 'root_node', 'locked']
+                  'supported_files', 'root_node', 'scale','x_offset', 'y_offset', 'edges', 'nodes',
+                  'install_error', 'install_error_code']
+        read_only_fields = ['id', 'total_steps', 'schema', 'owner', 'supported_files', 'root_node', 'locked',
+                  'install_error', 'install_error_code']
 
 class PipelineSerializer_READONLY(serializers.ModelSerializer):
 
@@ -259,7 +263,7 @@ class PipelineStepSerializer(serializers.ModelSerializer):
         model = PipelineNode
         read_only_fields =['id', 'owner']
         fields = ['id', 'name', 'type', 'parent_pipeline', 'script', 'step_settings',
-                  'step_number', 'input_transform', 'owner', 'x_coord', 'y_coord']
+                  'input_transform', 'owner', 'x_coord', 'y_coord']
 
 class PipelineStepSerializer_READONLY(serializers.ModelSerializer):
 
@@ -270,9 +274,9 @@ class PipelineStepSerializer_READONLY(serializers.ModelSerializer):
     class Meta:
         model = PipelineNode
         read_only_fields = ['id', 'name', 'type' 'parent_pipeline', 'script', 'step_settings',
-                  'step_number', 'input_transform', 'owner',  'x_coord', 'y_coord']
+                  'input_transform', 'owner',  'x_coord', 'y_coord']
         fields = ['id', 'name', 'type', 'parent_pipeline', 'script', 'step_settings',
-                  'step_number', 'input_transform', 'owner', 'x_coord', 'y_coord']
+                  'input_transform', 'owner', 'x_coord', 'y_coord']
 
 class Full_PipelineStepSerializer(serializers.ModelSerializer):
 
@@ -286,7 +290,7 @@ class Full_PipelineStepSerializer(serializers.ModelSerializer):
         model = PipelineNode
         read_only_fields = ['id', 'owner']
         fields = ['id', 'type', 'name', 'parent_pipeline', 'script', 'step_settings',
-                  'step_number', 'input_transform', 'owner', 'x_coord', 'y_coord']
+                  'input_transform', 'owner', 'x_coord', 'y_coord']
 
 class PipelineSummarySerializer(serializers.ModelSerializer):
 
@@ -303,13 +307,14 @@ class Full_PipelineSerializer(serializers.ModelSerializer):
     owner = serializers.ReadOnlyField(source='owner.username')
     pipelinenodes = Full_PipelineStepSerializer(many=True, read_only=True)
     root_node = Full_PipelineStepSerializer(many=False, read_only=True, required=False)
-    digraph = serializers.JSONField(required=False)
 
     class Meta:
         model = Pipeline
-        fields = ['id', 'name', 'schema', 'description', 'total_steps', 'owner', 'production',
-                  'supported_files', 'pipelinenodes', 'root_node', 'scale', 'x_offset', 'y_offset', 'digraph']
-        read_only_fields = ['id', 'schema', 'total_steps', 'owner', 'root_node', 'digraph']
+        fields = ['id', 'name', 'schema', 'description', 'total_steps', 'owner', 'production', 'locked',
+                  'supported_files', 'pipelinenodes', 'root_node', 'scale', 'x_offset', 'y_offset',
+                  'install_error', 'install_error_code']
+        read_only_fields = ['id', 'schema', 'total_steps', 'owner', 'root_node', 'locked',
+                  'install_error', 'install_error_code']
 
 class ResultSummarySerializer(serializers.ModelSerializer):
 

@@ -298,6 +298,8 @@ class Pipeline(models.Model):
     locked = models.BooleanField("Object locked (backend performing updates)...", default=False, blank=True)
     install_error = models.BooleanField("Installation Error", default=False, blank=True)
     install_error_code = models.TextField("Installation Error Description", blank=True, default="")
+    # if obj created with this value... don't create root note automatically. Only internal use...
+    imported = models.BooleanField("Created from import", default=False, blank=False)
 
     owner = models.ForeignKey(
         get_user_model(),
@@ -315,58 +317,22 @@ class Pipeline(models.Model):
     scale = models.FloatField("View Scale Factor", blank=False, default=1.0)
     x_offset = models.IntegerField("X Offset", blank=False, default=0)
     y_offset = models.IntegerField("Y Offset", blank=False, default=0)
-    digraph = models.JSONField(default=digraph_jsonfield_default_value)
 
     def __str__(self):
         return self.name
 
     def save(self, *args, **kwargs):
 
-        # When existing pipeline's view port is offset, inject the new coordinates into the digraph.
-        # Run synchronously as this should be pretty fast and we don't want race condition occurring where
-        # user updates position requests new position and then DRF fetches pre-updated version and returns
-        # out of date position
-
-        if self.pk:
-
-            orig = Pipeline.objects.get(pk=self.pk)
-
-            moved = False
-            digraph = {**orig.digraph}
-
-            if orig.scale != self.scale:
-                print(f"Pipeline ID #{self.pk} scale has changed! Updating digraph")
-                digraph['scale'] = self.scale
-                moved = True
-
-            if orig.x_offset != self.x_offset:
-                print(f"Pipeline ID #{self.pk} x has been moved to {self.x_offset}. Updating digraph.")
-                digraph['offset']['x'] = self.x_offset
-                moved = True
-
-            if orig.y_offset != self.y_offset:
-                print(f"Pipeline ID #{self.pk} y has been moved to {self.y_offset}. Updating digraph.")
-                digraph['offset']['y'] = self.y_offset
-                moved = True
-
-            if moved:
-                print("Digraph has been updated...")
-                self.digraph = digraph
-
-            super(Pipeline, self).save(*args, **kwargs)
-
-        else:
+        if not self.pk and not self.imported:
 
             # If this is a new model, create the root node (the relationship to which can't be changed via the serializers,
             # though the node itself can be modified):
             # How to tell if save is new save or update (apparently it's not well-documented):
             # https://stackoverflow.com/questions/907695/in-a-django-model-custom-save-method-how-should-you-identify-a-new-object
 
-            # If this is a new pipeline, create the root node.
-            # Once we switch to the new node and edge architecture, there will be no need to create or manage
-            # "step_number" value...
             super(Pipeline, self).save(*args, **kwargs)
 
+            # If this is a new pipeline, create the root node.
             # TODO - changes to or creation of related models should happen in signals... changes to THIS model happen in save
             root = PipelineNode.objects.create(**{
                 "type": PipelineNode.ROOT_NODE,
@@ -380,6 +346,9 @@ class Pipeline(models.Model):
             # Link the new root_node type node to the root_node of the pipeline that's being created
             self.root_node = root
             self.save()
+
+        else:
+            super(Pipeline, self).save(*args, **kwargs)
 
 
 class PipelineNode(models.Model):
