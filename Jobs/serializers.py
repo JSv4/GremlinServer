@@ -71,9 +71,13 @@ class PythonScriptSerializer(serializers.ModelSerializer):
             'installer_log',
             'setup_log',
             'locked',
-            'installing'
+            'installing',
+            'install_error',
+            'install_error_code'
         ]
-        read_only_fields = ['id', 'setup_log', 'owner', 'locked', 'installing']
+
+        read_only_fields = ['id', 'setup_log', 'owner', 'locked', 'installing',
+                            'install_error', 'install_error_code']
 
     def installing(self, obj):
         return self.installing()

@@ -55,10 +55,10 @@
         </div>
     </nav>
     <!-- Masthead-->
-    <header class="masthead" style="background: linear-gradient(to bottom, rgba(0, 0, 0, 0.3) 0%, rgba(0, 0, 0, 0.7) 75%, #000000 100%),background: url('{% static 'images/bg-masthead.jpg' %}')">
+    <header class="masthead" style="background: linear-gradient(to bottom, rgba(0, 0, 0, 0.3) 0%, rgba(0, 0, 0, 0.7) 75%, #000000 100%), url('{% static 'images/bg-masthead.jpg' %}')">
         <div class="container d-flex h-100 align-items-center">
             <div class="mx-auto text-center">
-                <img class="img-fluid" src="{% static 'images/gremlin_100_inverted.png' %}" alt="" />
+                <!--<img class="img-fluid" src="{% static 'images/bg-masthead.jpg' %}" alt="" />-->
                 <h1 class="mx-auto my-0 text-uppercase">GREMLIN</h1>
                 <h2 class="text-white-50 mx-auto mt-2 mb-5">A free, low-code microservices framework designed for NLP, AI and legal applications.</h2>
                 <a class="btn btn-primary js-scroll-trigger" href="#about">Get Started</a>
@@ -80,7 +80,7 @@
                     </p>
                 </div>
             </div>
-            <img class="img-fluid" src="{% static 'images/ipad.png' %}" alt="" />
+            <img class="img-fluid" src="{% static 'images/ipad2.png' %}" alt="" />
         </div>
     </section>
     <!-- Projects-->
@@ -88,7 +88,7 @@
         <div class="container">
             <!-- Featured Project Row-->
             <div class="row align-items-center no-gutters mb-4 mb-lg-5">
-                <div class="col-xl-8 col-lg-7"><img class="img-fluid mb-3 mb-lg-0" src="{% static 'images/bg-masthead.jpg' %}" alt="" /></div>
+                <div class="col-xl-8 col-lg-7"><img class="img-fluid mb-3 mb-lg-0" src="{% static 'images/code.png' %}" alt="" /></div>
                 <div class="col-xl-4 col-lg-5">
                     <div class="featured-text text-center text-lg-left">
                         <h4>Legal Open Source</h4>
@@ -100,13 +100,13 @@
             </div>
             <!-- Project One Row-->
             <div class="row justify-content-center no-gutters mb-5 mb-lg-0">
-                <div class="col-lg-6"><img class="img-fluid" src="{% static 'images/react-logo-825x510.jpg' %}" alt="" /></div>
+                <div class="col-lg-6"><img class="img-fluid" src="{% static 'images/visual_programming.png' %}" alt="" /></div>
                 <div class="col-lg-6">
                     <div class="bg-black text-center h-100 project">
                         <div class="d-flex h-100">
                             <div class="project-text w-100 my-auto text-center text-lg-left">
                                 <h4 class="text-white">React</h4>
-                                <p class="mb-0 text-white-50">Our React-based frontend incorporates best-in-breed open source projects.</p>
+                                <p class="mb-0 text-white-50">Our React-based frontend incorporates best-in-breed open source projects like React-Diagrams, Semantic-UI, Jsonschema-Forms and more.</p>
                                 <hr class="d-none d-lg-block mb-0 ml-0" />
                             </div>
                         </div>
@@ -115,7 +115,7 @@
             </div>
             <!-- Project Two Row-->
             <div class="row justify-content-center no-gutters">
-                <div class="col-lg-6"><img class="img-fluid" src="{% static 'images/python-logo.png' %}" alt="" /></div>
+                <div class="col-lg-6"><img class="img-fluid" src="{% static 'images/pythoneditor.png' %}" alt="" /></div>
                 <div class="col-lg-6 order-lg-first">
                     <div class="bg-black text-center h-100 project">
                         <div class="d-flex h-100">
@@ -131,7 +131,7 @@
         </div>
     </section>
     <!-- Signup-->
-    <section class="signup-section" id="signup" style="background: linear-gradient(to bottom, rgba(0, 0, 0, 0.3) 0%, rgba(0, 0, 0, 0.7) 75%, #000000 100%),background: url('{% static 'images/bg-signup.jpg' %}')">
+    <section class="signup-section" id="signup" style="background: linear-gradient(to bottom, rgba(0, 0, 0, 0.3) 0%, rgba(0, 0, 0, 0.7) 75%, #000000 100%), url('{% static 'images/bg-signup.jpg' %}')">
         <div class="container">
             <div class="row">
                 <div class="col-md-10 col-lg-8 mx-auto text-center">
@@ -189,9 +189,15 @@
     </section>
 
     <!-- Footer-->
-        <footer class="footer bg-black small text-center text-white-50"><div class="container">Copyright © Gordium Knot 2020</div></footer>
+        <footer class="footer bg-black small text-center text-white-50">
+          <div class="container">
+            Copyright © Gordium Knot 2020
+            <br>
+            <a href="https://startbootstrap.com/theme/grayscale">Based on the Grayscale Bootstrap Template</a>
+          </div>
+        </footer>
 
-    <!-- Le javascript
+    <!-- Javascript
     ================================================== -->
     <!-- Placed at the end of the document so the pages load faster -->
     {% block javascript %}
