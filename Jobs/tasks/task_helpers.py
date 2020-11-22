@@ -17,6 +17,17 @@ import re
 import types
 import textwrap
 
+result_object_template = {
+    'node': {
+        'id': None,
+        'previous_result_node_ids': [],
+        'this_node_document_result_ids': [],
+        'this_node_result_id': None
+    },
+    'node_results': [],
+    'doc_results': []
+}
+
 # Excellent django logging guidance here: https://docs.python.org/3/howto/logging-cookbook.html
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -188,7 +199,6 @@ def sendCallback(job):
     except Exception as e:
         logger.warn(f"Error on trying to send callback on job completion: {e}")
 
-
 # given a stepId, return a list of the preceding nodes
 def getPrecedingNodes(nodeId, ids_only=False):
     try:
@@ -211,28 +221,43 @@ def getPrecedingNodes(nodeId, ids_only=False):
     except Exception as e:
         return []
 
-
+#parent_node_ids, node_results, doc_results = getPrecedingResults
 def getPrecedingResults(job, node):
-    #TODO - somehow this error: Error trying to get preceding results for node 7: Field 'id' expected a number but got [3].
 
     print(f"getPrecedingResults for job{job} node {node}")
 
+    parent_node_ids = [] # this is just an array of parent node ids.
+    node_results = {} # this is a dict / JSON so scripts can easily look up results by id
+    doc_results = {} # this is a dict / JSON so scripts can easily look up results by id
+
     try:
-        previous_data = {}
 
-        preceding_nodes = getPrecedingNodes(node.id, ids_only=True)
-        print(f"preceding_nodes is {preceding_nodes}")
+        parent_node_ids = getPrecedingNodes(node.id, ids_only=True)
+        print(f"parent_node_ids is {parent_node_ids}")
 
-        for pn in preceding_nodes:
-            pr = Result.objects.get(job=job, pipeline_node__id=pn)
-            previous_data[pr.pipeline_node.id] = json.loads(pr.output_data)
+        # merge results object for all parent STEP nodes (docs are combined later)
+        for pn in parent_node_ids:
 
-        return previous_data
+            pr = Result.objects.get(job=job, pipeline_node__id=pn, type=Result.STEP)
+
+            if pr:
+
+                try:
+                    node_results = {**node_results, **pr.end_state['node_results']}
+                    doc_results = {**doc_results, **pr.end_state['doc_results']}
+
+                except Exception as e:
+                    node_results = {**node_results, pn: f"ERROR - {e}"}
+                    doc_results = {**doc_results, pn: f"ERROR - {e}"}
+            else:
+                node_results = {**node_results, pn: 'WARN - No result object!'}
+                doc_results = {**doc_results, pn: 'WARN - No result object!'}
 
     except Exception as e:
         logger.error(f"Error trying to get preceding results for node {node.id}: {e}")
         return {}
 
+    return parent_node_ids, node_results, doc_results
 
 # Given a pipeline id, traverse the pipeline tree and produce a json that user can use to scaffold up
 def getPipelineInputJSONTemplate(pipelineId):

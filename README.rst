@@ -133,6 +133,104 @@ Installation
 
     docker-compose -f production.yml up
 
+
+
+Pipeline & Node Schemas
+^^^^^^^^^^^^^^^^^^^^^^^
+
+GREMLIN currently supports checking user-provided inputs against
+a pre-set "schema" defined with JSON-schema. This is currently a very
+technical approach, *however* it will not be much work to use the JSON
+schema spec to render input forms for the end-user and show these in the
+"lawyer" GUI. It wouldn't be that challenging to create (or perhaps borrow,
+if a suitable library / project exists) a visual editor to let engineers
+build a questionnaire / input form which would then get stored as a json schema.
+For now, however, IF you provide a schema (and you don't have to), you need to
+code it yourself and understand json schema.
+
+Pipelines & Nodes Data Outputs and Access in Pipeline
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+As you build document processing pipelines, the data produced by one node
+is passed to subsequent nodes and so on and so forth. Because script can be
+setup to run in parallel over all docs simultaneously or in parallel, one per job
+that results in slightly different data schemas being created and passed along
+the pipelines:
+
+Node inputs
+job_inputs (input from job - entered by user)
+node_inputs (input from node - def by engineer)
+
+Node outputs
+node_output_data - created by user script.
+job_state - updated results state produced at end of job step OR merge results
+
+# remove buildScriptInput
+# update getPrecedingResults to just pull previous results.
+
+- Nodes that have scripts that run once per doc return data like this::
+
+    {
+        current_node: {
+            id: INT,
+            this_node_result_id: id (INT),
+            this_node_doc_result_ids: [doc_result_id1 (INT), doc_result_id2 (INT), doc_result_id3 (INT)],
+        },
+        parent_node_ids: [ids..],
+        node_results: {
+            node_id (INT): {
+                doc_results: [doc_result_id1 (INT), doc_result_id2 (INT), doc_result_id3 (INT)],
+                node_result_data: {json obj stored in STEP type result}
+            },
+            node_result_id (INT): ...
+        },
+        doc_results: {
+            result_id (INT): {
+                doc_id: id (INT),
+                node_id: id (INT),
+                data: {json obj stored in DOC type result},
+            },
+            doc_result_id (INT): {
+                node_id: id (INT),
+                data: json obj stored in DOC type result},
+            }
+            ...
+        }
+    }
+
+  - This gets packaged up by task "packageJobResults." Conformed parallel step merger to this format. Now need to ensure
+    script runner tasks are following format as well.
+
+Pipeline Architecture
+^^^^^^^^^^^^^^^^^^^^^
+
+Tasks are executed using different patterns of celery tasks. Look in tasks.py for the tasks themselves. There are other
+helper functions and constants in the tasks module.
+
+- Root Node Tasks
+
+  - createSharedResultForParallelExecution
+  - extractTextForDoc (parallel)
+  - resultsMerge
+
+- Script Node Task (Series Execution on *Job*)
+
+  - applyPythonScriptToJob
+
+- Script Node Task (Parallel Execution on all Docs)
+
+  - createSharedResultForParallelExecution
+  - applyPythonScriptToJobDoc
+  - resultsMerge
+
+- Packaging Tasks
+
+  - packageJobResults
+
+- Termination Tasks
+
+  - stopPipeline
+
 Further Guidance
 ^^^^^^^^^^^^^^^^
 

@@ -5,6 +5,7 @@ import celery
 import docx2txt
 import tika  # python wrapper for tika server
 import logging
+import copy
 
 from pathlib import Path
 from zipfile import ZipFile
@@ -18,8 +19,9 @@ from django.conf import settings
 from datetime import datetime
 
 from gremlin_gplv3.utils.emails import SendJobFinishedEmail
-from Jobs.serializers import PythonScriptSummarySerializer
-from Jobs.models import Job, Document, PipelineNode, Result, PythonScript, Edge, Pipeline
+from Jobs.serializers import PythonScriptSummarySerializer  # TODO - target for deletion.
+from Jobs.models import Job, Document, PipelineNode, Result, PythonScript, \
+                        Edge, Pipeline, blank_state
 from Jobs.tasks.task_helpers import exec_with_return, returnScriptMethod, buildScriptInput, \
     transformStepInputs, createFunctionFromString, buildNodePipelineRecursively, getPrecedingResults, \
     stopJob, jobSucceeded, getPrecedingNodesForNode
@@ -44,6 +46,17 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 step_logger = logging.getLogger('task_db')
 job_logger = logging.getLogger('job_db')
+
+result_object_template = {
+    'node': {
+        'id': None,
+        'previous_result_node_ids': [],
+        'this_node_doc_result_ids': [],
+        'this_node_result_id': None
+    },
+    'node_results': [],
+    'doc_results': []
+}
 
 
 # One of the challenges of switching to a docker-based deploy is that system env isn't persisted and
@@ -131,13 +144,12 @@ class FaultTolerantTask(celery.Task):
 
 @celery_app.task(base=FaultTolerantTask, name="Run Script Package Installer")
 def runScriptPackageInstaller(*args, scriptId=-1, oldScriptId=-1, new_packages="", **kwargs):
-
     logger.info(f"runScriptPackageInstaller - scriptId {scriptId} and oldScriptId {oldScriptId}: {args}")
 
-    if len(args)>0:
+    if len(args) > 0:
         return_data = args[0]
         if 'error' in return_data and bool(return_data['error']):
-            return return_data #If an error arose earlier in the setup chain... terminate and flow through to end
+            return return_data  # If an error arose earlier in the setup chain... terminate and flow through to end
     else:
         return_data = {}
 
@@ -188,7 +200,7 @@ def runScriptSetupScript(*args, scriptId=-1, oldScriptId=-1, setup_script=None, 
     logger.info(f"runScriptSetupScript - scriptId {scriptId} and oldScriptId {oldScriptId}: {args}")
     logger.info(f"runScriptSetupScript - setup_script is: {setup_script}")
 
-    if len(args)>0:
+    if len(args) > 0:
         return_data = args[0]
         if 'error' in return_data and bool(return_data['error']):
             return return_data
@@ -250,7 +262,6 @@ def runScriptSetupScript(*args, scriptId=-1, oldScriptId=-1, setup_script=None, 
 
 @celery_app.task(base=FaultTolerantTask, name="Run Script Env Variable Installer")
 def runScriptEnvVarInstaller(*args, scriptId=-1, oldScriptId=-1, env_variables=None, **kwargs):
-
     logger.info(f"runScriptEnvVarInstaller - scriptId {scriptId}: {args}")
 
     if len(args) > 0:
@@ -298,6 +309,7 @@ def runScriptEnvVarInstaller(*args, scriptId=-1, oldScriptId=-1, env_variables=N
         return_data['error'] = error
         return_data['envs_installed'] = False
         return return_data
+
 
 @celery_app.task(base=FaultTolerantTask, name="Run Job To Node")
 def runJobToNode(*args, jobId=-1, endNodeId=-1, **kwargs):
@@ -359,9 +371,8 @@ def runJobToNode(*args, jobId=-1, endNodeId=-1, **kwargs):
             # Start with a job to ensure all of the documents are extracted
             # You can't just use a group here, however, as we want to chain further jobs to it and that will
             # create the group to a chord in a way we don't want. A workaround is to just treat this as a chord
-            # from the start, which will then allow us to chain the chords and get desired behavior IF we use
-            # a dummy chord terminator (as there's nothing we want to do with the underlying extractTextForDoc
-            # return values.
+            # from the start, which will then allow us to chain the chords... even better we can terminate the chain
+            # with a packaging step.
             # See more here: https://stackoverflow.com/questions/15123772/celery-chaining-groups-and-subtasks-out-of-order-execution
             if node.type == "ROOT_NODE":
                 logger.info("Build root node celery instructions")
@@ -456,7 +467,7 @@ def runJob(*args, jobId=-1, **kwargs):
             # return values.
             # See more here: https://stackoverflow.com/questions/15123772/celery-chaining-groups-and-subtasks-out-of-order-execution
             if node.type == "ROOT_NODE":
-                celery_jobs.append(createSharedResultForParallelExecution.si(jobId=jobId, stepId=node.id))
+                celery_jobs.append(createSharedResultForParallelExecution.si(jobId=jobId, stepId=node.id, root=True))
                 celery_jobs.append(chord(
                     group([extractTextForDoc.si(docId=d.id) for d in jobDocs]),
                     resultsMerge.si(jobId=jobId, stepId=node.id)))
@@ -477,19 +488,6 @@ def runJob(*args, jobId=-1, **kwargs):
                     raise PipelineError(message="{0} - {1}".format(JOB_FAILED_DID_NOT_FINISH,
                                                                    "Unrecognized script type: {0}".format(
                                                                        node.script.type)))
-
-        # createSharedResultForParallelExecution --> OK
-        # extractTextForDoc (parallel)
-        # resultsMerge
-
-        # applyPythonScriptToJob
-
-        # createSharedResultForParallelExecution
-        # applyPythonScriptToJobDoc
-        # resultsMerge
-
-        # packageJobResults
-        # stopPipeline
 
         # add last step which will shut down the job when the tasks complete
         celery_jobs.append(packageJobResults.s(jobId=jobId))
@@ -580,7 +578,6 @@ def lockScript(*args, scriptId=-1, oldScriptId=-1, **kwargs):
 # of unlocking it and add error code to the model.
 @celery_app.task(base=FaultTolerantTask, name="Unlock Script")
 def unlockScript(*args, scriptId=-1, oldScriptId=-1, installer=False, **kwargs):
-
     logger.info(f"unlockScript - scriptId {scriptId} and oldScriptId {oldScriptId}: {args}")
     return_data = {}
 
@@ -611,23 +608,24 @@ def unlockScript(*args, scriptId=-1, oldScriptId=-1, installer=False, **kwargs):
                         f"Package Installer Stderr:\n\n{return_data['package_installer_error'] if 'package_installer_error' in return_data else ''}"
 
         pythonScript = PythonScript.objects.get(id=id)
-        pythonScript.install_error='error' in return_data and bool(return_data['error'])
-        pythonScript.install_error_code=return_data['error'] if 'error' in return_data and return_data['error'] else False
-        pythonScript.setup_log=setup_log
-        pythonScript.installer_log=installer_log
+        pythonScript.install_error = 'error' in return_data and bool(return_data['error'])
+        pythonScript.install_error_code = return_data['error'] if 'error' in return_data and return_data[
+            'error'] else False
+        pythonScript.setup_log = setup_log
+        pythonScript.installer_log = installer_log
 
         if 'packages_installed' in return_data and return_data['packages_installed']:
-            pythonScript.package_needs_install=False
+            pythonScript.package_needs_install = False
 
         if 'setupscript_installed' in return_data and return_data['setupscript_installed']:
-            pythonScript.script_needs_install=False
+            pythonScript.script_needs_install = False
 
         if 'envs_installed' in return_data and return_data['envs_installed']:
-            pythonScript.env_variables_need_install=False
+            pythonScript.env_variables_need_install = False
 
-        #If this was the installer calling this unlock, unlock the locked property:
+        # If this was the installer calling this unlock, unlock the locked property:
         if installer:
-            pythonScript.locked=False
+            pythonScript.locked = False
 
         pythonScript.save()
 
@@ -688,6 +686,7 @@ def stopPipeline(*args, jobId=-1, **kwargs):
 # processingTask is assumed to take arguments job and doc
 @celery_app.task(base=FaultTolerantTask, name="Celery Wrapper for Python Job Doc Task")
 def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
+
     # Create loggers
     jobLog = io.StringIO()
     jobLogger = JobLogger(jobId=jobId, name="applyPythonScriptToJobDoc")
@@ -699,11 +698,16 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, nodeId=-1, scriptId=-1,
 
     # Placeholder for results
     result = None
+    result_data = {}
 
     try:
 
         # Create placeholder for result object
-        result = None
+        logger.info("\napplyPythonScriptToJobDoc - args is:{0}".format(args))
+        logger.info("\napplyPythonScriptToJobDoc - docId is:{0}".format(docId))
+        logger.info("\napplyPythonScriptToJobDoc - jobId is:{0}".format(jobId))
+        logger.info("\napplyPythonScriptToJobDoc - stepId is:{0}".format(nodeId))
+        logger.info("\napplyPythonScriptToJobDoc - scriptId is:{0}".format(scriptId))
 
         jobLog.write("\napplyPythonScriptToJobDoc - args is:{0}".format(args))
         jobLog.write("\napplyPythonScriptToJobDoc - docId is:{0}".format(docId))
@@ -743,9 +747,17 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, nodeId=-1, scriptId=-1,
         pipeline_node = PipelineNode.objects.get(id=nodeId)
         script = pipeline_node.script
 
+        # Load step result from earlier
+        logger.info("Try to fetch aggregate step result created earlier:")
+        node_result = Result.objects.get(pipeline_node=pipeline_node, job=job, type=Result.STEP)
+        logger.info(f"Retrieved node: {node_result}")
+
         # Check that the input files are compatible with scripts:
         supported_doc_types = json.loads(pipeline_node.script.supported_file_types)
-        if not doc.type in supported_doc_types:
+        logger.info(f"Supported doc types: {supported_doc_types}")
+
+        if supported_doc_types and not doc.type in supported_doc_types:
+            logger.info(f"Doc type {doc.type} is NOT one of supported types: {supported_doc_types}")
             raise FileNotSupportedError(message="{0} - Cannot run script {1} on doc type {2} as it"
                                                 " is not in supported file types: {3}".format(
                 JOB_FAILED_UNSUPPORTED_FILE_TYPE,
@@ -755,35 +767,11 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, nodeId=-1, scriptId=-1,
             ))
 
         else:
+            logger.info("Doc type is supported!")
             jobLog.write("\nDoc type {0} IS supported by script ID #{1}".format(
                 doc.type,
                 scriptId
             ))
-
-        # If there was a preceding step, grab the data from that step and pass it as an input, otherwise, this is a
-        # first (possibly only) step and we want to pass in job settings.
-        try:
-            preceding_data = getPrecedingResults(job, pipeline_node)
-            jobLog.write(f"Successfully got preceding data: {preceding_data}")
-
-        except Exception as e:
-            jobLog.write(f"\nTrying to build preceding data but encountered an unexpected error: {e}")
-
-        # transform the scriptInputs (if there is a transform script provided)
-        transformed_data = preceding_data
-        if pipeline_node.input_transform:
-            transformed_data = transformStepInputs(pipeline_node.input_transform, preceding_data)
-
-        # Build json inputs for job, which are built from both step settings in the job settings and
-        # and the step_settings store. Dictonaries are combined. If key exists in both job and step settings
-        # the job key will overwrite the step key's value.
-        script_inputs = buildScriptInput(pipeline_node, job, script)
-
-        # Store input data
-        result.input_settings = script_inputs
-        result.raw_input_data = preceding_data
-        result.transformed_input_data = transformed_data
-        result.save()
 
         # Try to load the document into byte object to be passed into user scripts
         # User scripts will NOT get any of the underlying django objs. This abstracts
@@ -795,8 +783,9 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, nodeId=-1, scriptId=-1,
             settings.DEFAULT_FILE_STORAGE == "gremlin_gplv3.utils.storages.MediaRootS3Boto3Storage")
         jobLog.write("UsingS3: {0}".format(usingS3))
 
-        # if the rawText field is still empty... assume that extraction hasn't happened.
-        # for some file types (like image-only pdfs), this will not always be right.
+        # Load the document bytes
+        logger.info("Trying to load doc bytes")
+        docBytes = None
         if doc.file:
 
             # if we're using Boto S3, we need to interact with the files differently
@@ -810,13 +799,29 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, nodeId=-1, scriptId=-1,
 
             # Load the file object from Django storage backend
             docBytes = default_storage.open(filename, mode='rb').read()
+        logger.info("Loaded")
+
+        logger.info("Checked extract state")
 
         # This is only going to capture log entries from within the user's scripts.
         scriptLogger = TaskLogger(resultId=result.id, name="User_Doc_Script")
         jobLog.write(f"\nStarting script for job ID #{job.id} (step # {pipeline_node.step_number} on "
-                     f"doc ID #{doc.id}) with inputs: {script_inputs}")
+                     f"doc ID #{doc.id}).")
         jobLog.write(f"Doc is {doc}")
         jobLog.write(f"Doc has text: {len(doc.rawText) > 0}")
+
+        # Prepare the transformed state data for script
+        # transform the scriptInputs (if there is a transform script provided)
+        transformed_data = result.start_state
+
+        if pipeline_node.input_transform:
+            transformed_data = transformStepInputs(pipeline_node.input_transform, result.start_state)
+            message = "\nData transform complete"
+            jobLog.write(message)
+            logger.info(message)
+
+        result.transformed_input_data = json.dumps(transformed_data)
+        result.save()
 
         # Run the user script but wrap in a try / except so we don't crash the pipeline if this fails
         finished, message, data, fileBytes, file_ext = createFunctionFromString(script.script)(
@@ -825,15 +830,18 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, nodeId=-1, scriptId=-1,
             docText=doc.rawText,
             docName=doc.name,
             docByteObj=docBytes,
-            logger=scriptLogger,
-            scriptInputs=script_inputs,
+            nodeInputs=node_result.node_inputs,
+            jobInputs=node_result.job_inputs,
             previousData=transformed_data,
+            logger=scriptLogger,
             **kwargs)
 
+        logger.info("User code complete...")
         jobLog.write(f"Finished {finished}")
         jobLog.write(f"Message {message}")
         jobLog.write(f"data {data}")
         jobLog.write(f"file extension {file_ext} of type {type(file_ext)}")
+
 
         # take file object and save to filesystem provided it is not none and plausibly could be an extension
         if file_ext and len(file_ext) > 1:
@@ -843,13 +851,17 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, nodeId=-1, scriptId=-1,
                 "./step_results/{0}/{1}/{2}-{3}.{4}".format(jobId, nodeId, doc.id, name, file_ext),
                 file_data)
 
+        result_data = None
+        if data: result_data = copy.deepcopy(data)
+
+        logger.info("Store results in doc result.")
         result.finished = True
-        result.output_data = json.dumps(data)
+        result.node_output_data = result_data
         result.stop_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
         result.save()
+        logger.info("Done")
 
         if finished:
-
             # iterate job task completion count
             job.completed_tasks = job.completed_tasks + 1
             job.save()
@@ -869,6 +881,7 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, nodeId=-1, scriptId=-1,
             nodeId,
             e
         )
+        logger.error(returnMessage)
         jobLogger.error(returnMessage)
         traceback.print_exc(file=jobLog)
         jobLog.write(returnMessage)
@@ -908,6 +921,7 @@ def applyPythonScriptToJob(*args, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
         if len(args) > 0 and not jobSucceeded(args[0]):
             raise PrecedingNodeError(message="Previous node has already failed: {0}".format(args[0]))
 
+        # If we're cleared for launch, load required objs from db and create holder result
         result = Result.objects.create(
             name="Pipeline: {0} | Step #{1}".format(job.pipeline.id, nodeId),
             job=job,
@@ -920,61 +934,135 @@ def applyPythonScriptToJob(*args, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
         )
         result.save()
 
-        pipeline_node = PipelineNode.objects.get(id=nodeId)
-        script = pipeline_node.script
+        node = PipelineNode.objects.get(id=nodeId)
+        script = node.script
 
+        # setup a results object for this node and preload pre-run state and inputs
         # Build json inputs for job, which are built from both step settings in the job settings and
-        # and the step_settings store.
-        script_inputs = buildScriptInput(pipeline_node, job, script)
-
-        # If there was a preceding step, grab the data from that step and pass it as an input, otherwise, this is a
-        # first (possibly only) step and we want to pass in job settings.
-        # If there was a preceding step, grab the data from that step and pass it as an input, otherwise, this is a
-        # first (possibly only) step and we want to pass in job settings.
-        preceding_data = {}
+        # and the step_settings store. Dictonaries are combined. If key exists in both job and step settings
+        # the job key will overwrite the step key's value.
         try:
-            preceding_data = getPrecedingResults(job, pipeline_node)
-            nodeLog.write(f"Successfully got preceding data: {preceding_data}")
+            result.job_inputs = json.loads(job.job_inputs)
+        except:
+            pass
 
+        try:
+            result.node_inputs = json.loads(node.step_settings)
+        except:
+            pass
+
+        parent_node_ids = []
+        node_results = {}
+        doc_results = {}
+
+        try:
+            parent_node_ids, node_results, doc_results = getPrecedingResults(job, node)
         except Exception as e:
-            nodeLog.write(f"\nTrying to build preceding data but encountered an unexpected error: {e}\n")
-            traceback.print_exc(file=nodeLog)
+            pass
 
-        nodeLog.write("\nStarting data transform")
+        logger.info(f"Got result start")
+
+        result.start_state['current_node']['id'] = node.id
+        result.start_state['current_node']['this_node_result_id'] = result.id
+        result.start_state['parent_node_ids'] = [*parent_node_ids]
+        result.start_state['node_results'] = {**node_results}
+        result.start_state['doc_results'] = {**doc_results}
+
+        logger.info(f"start state: {result.start_state}")
+
+        # We're building the result for this node PRIOR to running it
+        # so the end state will start out equal to the start_state and we'll mutate
+        # it after running.
+        result.end_state = {**result.start_state}
+
+        # Save this results object with all of the inputs and outputs we just stored / built
+        # this will be loaded from memory and passed into script itself.
+        result.save()
+
+        logger.info("Result is saved")
 
         # transform the scriptInputs (if there is a transform script provided)
-        transformed_data = preceding_data
+        transformed_data = {**result.start_state}
+        if node.input_transform:
+            transformed_data = transformStepInputs(node.input_transform, result.start_state)
+            message = "\nData transform complete"
+            nodeLog.write(message)
+            logger.info(message)
 
-        if pipeline_node.input_transform:
-            transformed_data = transformStepInputs(pipeline_node.input_transform, preceding_data)
+        logger.info("Transform applied")
 
-        nodeLog.write("\nData transform complete")
-
-        result.input_settings = json.dumps(script_inputs)
-        result.raw_input_data = json.dumps(preceding_data)
         result.transformed_input_data = json.dumps(transformed_data)
         result.save()
 
+        logger.info("Transform saved.")
+
+        node_inputs = {**result.node_inputs}
+        logger.info("Node inputs stored")
+
+        job_inputs = {**result.job_inputs}
+        logger.info("Job inputs stored")
+
         # This will only get logs from within user's script if they actually use the logger.
         scriptLogger = TaskLogger(resultId=result.id, name="User_Job_Script")
-        nodeLog.write(f"\nStarting script for job ID #{job.id} (step # {pipeline_node.step_number}) "
-                      f"with inputs: {script_inputs}")
+        message = f"\nStarting script for job ID #{job.id} (step # {node.step_number}) " \
+                  f"with inputs: {result.node_inputs}"
+        nodeLog.write(message)
+        logger.info(message)
 
         # call the script with the appropriate Gremlin / Django objects already loaded (don't want the user
         # interacting with underlying Django infrastructure.
         finished, message, data, fileBytes, file_ext, docPackaging = createFunctionFromString(script.script)(*args,
                                                                                                              job=job,
-                                                                                                             step=pipeline_node,
+                                                                                                             step=node,
                                                                                                              logger=scriptLogger,
-                                                                                                             scriptInputs=script_inputs,
+                                                                                                             nodeInputs=node_inputs,
+                                                                                                             jobInputs=job_inputs,
                                                                                                              previousData=transformed_data,
                                                                                                              **kwargs)
 
-        nodeLog.write(f"Script finished: {finished}")
-        nodeLog.write(f"Message: {message}")
-        nodeLog.write(f"Data: {data}")
-        nodeLog.write(f"File extension {file_ext} of type {type(file_ext)}")
-        nodeLog.write(f"Doc packaging instructions are {docPackaging}")
+        logger.info("Finished script")
+
+        # pull in data from preceding step node results to start building the output data for this node.
+        dataObj = {
+            "type": Result.STEP,
+            'data': copy.deepcopy(data),
+            'parent_node_ids': result.end_state['parent_node_ids']
+        }
+
+        logger.info(f"Data object: {dataObj}")
+
+        # store outputs in both end_state and node_output_data - HERE
+        result.end_state['node_results'][node.id] = dataObj
+        logger.info(f"pre save end state: {result.end_state}")
+        result.save()
+        logger.info(f"stored in end_State {result.end_state}")
+
+        result.node_output_data = {node.id: dataObj}
+        result.save()
+        logger.info(f"stored node data: {result.node_output_data}")
+
+        result.save()
+        logger.info(f"Saved")
+
+        message = f"Script finished: {finished}"
+        nodeLog.write(message)
+        logger.info(message)
+
+        message = f"Message: {message}"
+        nodeLog.write(message)
+        logger.info(message)
+
+        message = f"Data: {data}"
+        nodeLog.write(message)
+        logger.info(message)
+
+        message = f"File extension {file_ext} of type {type(file_ext)}"
+        nodeLog.write(message)
+        logger.info(message)
+
+        message = f"Doc packaging instructions are {docPackaging}"
+        nodeLog.write(message)
+        logger.info(message)
 
         # if there is a set of doc packaging instructions, build the doc package
         if docPackaging and isinstance(docPackaging, dict):
@@ -1006,11 +1094,11 @@ def applyPythonScriptToJob(*args, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
 
             packageZip.close()
 
-            result.file.save("./step_results/{0}/{1}/Step {2} ({3}).{4}".format(
+            result.file.save("./node_results/{0}/{1}/Step {2} ({3}).{4}".format(
                 jobId,
                 nodeId,
-                pipeline_node.name,
-                pipeline_node.step_number + 1,
+                node.name,
+                node.step_number + 1,
                 "zip"),
                 ContentFile(packageBytes.getvalue())
             )
@@ -1019,26 +1107,22 @@ def applyPythonScriptToJob(*args, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
         # take file object and save to filesystem provided it is not none and plausibly could be an extension
         elif file_ext and len(file_ext) > 1:
             file_data = ContentFile(fileBytes)
-            result.file.save("./step_results/{0}/{1}/Step {2} ({3}).{4}".format(
+            result.file.save("./node_results/{0}/{1}/Step {2} ({3}).{4}".format(
                 jobId,
                 nodeId,
-                pipeline_node.name,
-                pipeline_node.step_number + 1,
+                node.name,
+                node.step_number + 1,
                 file_ext
             ),
                 file_data
             )
 
-        result.output_data = json.dumps(data, indent=4)
         result.stop_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
         result.finished = True
         result.save()
 
         if finished:
-
             # iterate job task completion count
-            job.completed_tasks = job.completed_tasks + 1
-            job.save()
             nodeLog.write("Done")
             jobLogger.info(msg=nodeLog.getvalue())
             return JOB_SUCCESS
@@ -1049,7 +1133,7 @@ def applyPythonScriptToJob(*args, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
             raise UserScriptError(message="User script returned Finished=False. Node in error state.")
 
     except Exception as e:
-        returnMessage = "{0} - Error on Step #{1} for Job {2}: {3}".format(
+        returnMessage = "{0} - Error on Node #{1} for Job {2}: {3}".format(
             JOB_FAILED_DID_NOT_FINISH,
             nodeId,
             jobId,
@@ -1073,29 +1157,30 @@ def chordfinisher(previousMessage, *args, **kwargs):
 
 # Tee up a parallel step by creating step result with proper start time... otherwise we'll lose
 @celery_app.task(base=FaultTolerantTask)
-def createSharedResultForParallelExecution(*args, jobId=-1, stepId=-1, **kwargs):
+def createSharedResultForParallelExecution(*args, jobId=-1, stepId=-1, root=False, **kwargs):
+
     try:
         jobLogger = JobLogger(jobId=jobId, name="runJob")
         temp = io.StringIO()
         job = Job.objects.get(id=jobId)
-        step = PipelineNode.objects.get(id=stepId)
+        node = PipelineNode.objects.get(id=stepId)
 
         temp.write("createSharedResultForParallelExecution - jobId {0} and stepId {1}".format(jobId, stepId))
         temp.write("Job object {0}".format(job))
-        temp.write("Step object: {0}".format(step))
+        temp.write("Step object: {0}".format(node))
 
         # Currently the root node script is null and root nodes just trigger a built-in celery job...
         # I need to update the system so it creates a default root node type *object* in the DB and treats
         # root nodes more like other node types... eventually.
-        if step.type == PipelineNode.ROOT_NODE:
+        if node.type == PipelineNode.ROOT_NODE:
             name = "Pipeline: {0} | Step #{1}".format(job.pipeline.name, "BUILT-IN"),
         else:
-            name = "Pipeline: {0} | Step #{1}".format(job.pipeline.name, step.script.name),
+            name = "Pipeline: {0} | Step #{1}".format(job.pipeline.name, node.script.name),
 
-        step_result = Result.objects.create(
+        node_result = Result.objects.create(
             name=name,
             job=job,
-            pipeline_node=step,
+            pipeline_node=node,
             type='STEP',
             start_time=datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ"),
             stop_time=None,
@@ -1103,15 +1188,53 @@ def createSharedResultForParallelExecution(*args, jobId=-1, stepId=-1, **kwargs)
             finished=False,
             error=False
         )
-        step_result.save()
+        node_result.save()
 
-        temp.write("Created result for parallel execution step: ")
+        # Build json inputs for job, which are built from both step settings in the job settings and
+        # and the step_settings store. Dictonaries are combined. If key exists in both job and step settings
+        # the job key will overwrite the step key's value.
+        try:
+            node_result.job_inputs = job.dumps(node.job_inputs)
+        except:
+            pass
+
+        try:
+            node_result.node_inputs = json.dumps(node.step_settings)
+        except:
+            pass
+
+        # root node has no result data to start out... so just set these to blanks
+        if root:
+            parent_node_ids = []
+            node_results = {}
+            doc_results = {}
+        else:
+            parent_node_ids, node_results, doc_results = getPrecedingResults(job, node)
+
+        logger.info(f"start state of node_result is: {node_result.start_state}")
+        node_result.start_state['current_node']['id'] = node.id
+        node_result.start_state['current_node']['this_node_result_id'] = node_result.id
+        node_result.start_state['parent_node_ids'] = parent_node_ids
+        node_result.start_state['node_results'] = node_results
+        node_result.start_state['doc_results'] = doc_results
+
+        # We're building the result for this node PRIOR to running it
+        # so the end state will start out equal to the start_state and we'll mutate
+        # it after running.
+        logger.info(f"Created initial state: {node_result.start_state}")
+        node_result.end_state = node_result.start_state
+
+        # Save this results object with all of the inputs and outputs we just stored / built
+        # this will be loaded from memory and passed into script itself.
+        node_result.save()
+
+        temp.write("Created result for parallel execution node: ")
         jobLogger.info(temp.getvalue())
 
         return JOB_SUCCESS
 
     except Exception as e:
-        return "{0} - Error trying to start parallel step. Perhaps specified job or pipeline is wrong? This shouldn't " \
+        return "{0} - Error trying to start parallel node. Perhaps specified job or pipeline is wrong? This shouldn't " \
                "ever happen (comforting, right?). Exception is: {1}".format(JOB_FAILED_DID_NOT_FINISH, e)
 
 
@@ -1120,6 +1243,9 @@ def createSharedResultForParallelExecution(*args, jobId=-1, stepId=-1, **kwargs)
 @celery_app.task(base=FaultTolerantTask)
 def resultsMerge(*args, jobId=-1, stepId=-1, **kwargs):
     try:
+
+        logger.info("Start resultsMerge...")
+        logger.info(f"Results merge inputs: {args}")
 
         # Get loggers
         jobLogger = JobLogger(jobId=jobId, name="resultsMerge")
@@ -1144,63 +1270,64 @@ def resultsMerge(*args, jobId=-1, stepId=-1, **kwargs):
             mergeLog.write(arg)
 
         job = Job.objects.get(id=jobId)
-        step = PipelineNode.objects.get(id=stepId)
-        results = Result.objects.filter(pipeline_node=step, job=job)
+        node = PipelineNode.objects.get(id=stepId)
+        doc_results = Result.objects.filter(pipeline_node=node, job=job, type=Result.DOC)
 
         # For parallel steps, the step result should have been created before the execution split in parallel workers, so
         # fetch that earlier result to preserve original start time and store results of the parallel execution
-        logger.info("Try to fetch parallel step result created earlier:")
-        step_result = Result.objects.get(pipeline_node=step, job=job, type=Result.STEP)
+        logger.info("Try to fetch aggregate step result created earlier:")
+        node_result = Result.objects.get(pipeline_node=node, job=job, type=Result.STEP)
         logger.info("Step result retrieved from memory is: ")
-        logger.info(step_result)
+        logger.info(node_result)
 
-        logger.info("Start results merger for {0} results.".format(str(len(results))))
+        logger.info("Start results merger for {0} results.".format(str(len(doc_results))))
 
-        input_settings = {}
-        transformed_inputs = {}
-        raw_inputs = {}
-        outputs = {}
+        end_state = copy.deepcopy(node_result.end_state)
+        node_data = {
+            'type': Result.DOC,
+            'doc_results': [],
+            'parent_node_ids': end_state['parent_node_ids']
+        }
 
-        for result in results:
+        for result in doc_results:
 
-            logger.info(f"\nTry to package result for {result.name}")
+            logger.info(f"Try to merge result for doc result ID {result.id}")
 
             try:
-                input_settings[f"{result.id}"] = json.loads(result.input_settings)
+
+                # If there is no output_data, set it to None/null
+                output_data = None
+                if result.node_output_data:
+                    output_data = copy.deepcopy(result.node_output_data)
+
+                end_state['doc_results'][result.id] = {
+                    'doc_id': result.doc.id,
+                    'node_id': result.pipeline_node.id,
+                    'data': output_data
+                }
+                node_data['doc_results'].append(result.id)
+
             except Exception as e:
-                logger.info(f"\nError while trying to input settings for step {result.pipeline_node.step_number} and " \
-                            f"doc {result.id}: {e}")
-                input_settings[f"{result.id}"] = {}
+                message = f"WARNING - Error while trying to merge output data for step {result.pipeline_node.step_number} and " \
+                          f"doc {result.id}: {e}"
+                logger.error(message)
+                mergeLog.write(message)
+
+                end_state['doc_results'][result.id] = {
+                    'doc_id': -1,
+                    'node_id': -1,
+                    'data': f"ERROR merging data - {e}"
+                }
+                node_data['doc_results'].append(result.id)
+
                 error = True
 
-            try:
-                transformed_inputs[f"{result.id}"] = json.loads(result.transformed_input_data)
+            # store the doc node result
+            end_state['current_node']['this_node_doc_result_ids'].append(result.id)
 
-            except Exception as e:
-
-                mergeLog.write(
-                    f"\nError while trying to merge transformed input data for step {result.pipeline_node.step_number} "
-                    f"and doc {result.id}: {e}")
-                transformed_inputs[f"{result.id}"] = {}
-                error = True
-
-            try:
-                raw_inputs[f"{result.id}"] = json.loads(result.input_data.raw_input_data)
-
-            except Exception as e:
-                mergeLog.write(
-                    f"\nWARNING - Error while trying to merge raw input data for step {result.pipeline_node.step_number} and " \
-                    f"doc {result.id}: {e}")
-                raw_inputs[f"{result.id}"] = {}
-
-            try:
-                outputs[f"{result.id}"] = json.loads(result.output_data.output_data)
-            except Exception as e:
-                mergeLog.write(
-                    f"WARNING - Error while trying to merge output data for step {result.pipeline_node.step_number} and " \
-                    f"doc {result.id}: {e}")
-                outputs[f"{result.id}"] = {}
-                error = True
+        # inject the node data into the state for the nodes
+        if node.type != PipelineNode.ROOT_NODE:
+            end_state['node_results'][node.id] = node_data
 
         mergeLog.write("\Step result created and saved.")
 
@@ -1208,13 +1335,11 @@ def resultsMerge(*args, jobId=-1, stepId=-1, **kwargs):
         job.completed_tasks = job.completed_tasks + 1
         job.save()
 
-        step_result.stop_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
-        step_result.raw_input_data = json.dumps(raw_inputs)
-        step_result.transformed_input_data = json.dumps(transformed_inputs)
-        step_result.output_data = json.dumps({"documents": outputs})
-        step_result.finished = True
-        step_result.terror = error
-        step_result.save()
+        node_result.end_state = end_state
+        node_result.node_output_data = node_data
+        node_result.finished = True
+        node_result.error = error
+        node_result.save()
 
         mergeLog.write("\nResults merger complete.")
 
@@ -1451,7 +1576,7 @@ def importScriptsFromYAML(*Args, scripts=[], **kwargs):
                 setup_script=script['setup_script'],
                 script_needs_install=bool(script['setup_script']),
                 env_variables=script['env_variables'],
-                env_variables_need_install = bool(script['env_variables'])
+                env_variables_need_install=bool(script['env_variables'])
             )
 
             # Need to map the id in the YAML file to the id actually created by Django as there's almost no chance they'll be the same
@@ -1622,15 +1747,7 @@ def packageJobResults(*args, jobId=-1, **kwargs):
 
                 jobLogger.info("Try packaging file result ({0}) into job # {1}".format(r.id, jobId))
 
-                # If there's output json...
-                if r.output_data != "{}":
-                    jobLogger.info("There is data... write to data file")
-                    newChildPath = "./Step {0} ({1})/{2}_data.json".format(r.pipeline_node.step_number + 1,
-                                                                           r.pipeline_node.name, r.pipeline_node.name)
-                    jobLogger.info(f"Data file will be: {newChildPath}")
-                    jobResultsZipData.writestr(newChildPath, r.output_data)
-
-                # If there's output file
+                # If there's an output file for this result (either doc or step), write it to zip
                 if r.file:
 
                     jobLogger.info("There is a file object associated with this result.")
@@ -1659,21 +1776,44 @@ def packageJobResults(*args, jobId=-1, **kwargs):
                 else:
                     jobLogger.info("There is not file object associated with this result.")
 
-        jobResultsZipData.close()
 
-        # Step results already aggregated doc results, so we don't want to include those when assembling data.
-        for num, r in enumerate(stepResults):
-            # aggregate the result data from each results object under the job object.
-            if r.output_data:
-                jobLogger.info("Job has results data. Not logging as we don't know how large it is...")
-                try:
-                    stepData = json.loads(r.output_data)
-                    jobData = {**jobData, **{r.pipeline_node.step_number: stepData}}
-                    jobLogger.info("Appears we added this result successfully")
-                except Exception as e:
-                    jobLogger.warning("There was an error trying to append data: {0}".format(e))
-            else:
-                jobLogger.info("There is no result data")
+            # Step results already aggregated doc results, so we don't want to include those when assembling data.
+            for num, r in enumerate(stepResults):
+                # aggregate the result data from each results object under the job object.
+                if r.node_output_data:
+
+                    jobLogger.info("Job has results data. Not logging as we don't know how large it is...")
+
+                    try:
+                        stepData = r.node_output_data
+                        jobData = {**jobData, **{r.pipeline_node.id: stepData}}
+                        jobLogger.info("Appears we added this result successfully")
+                    except Exception as e:
+                        jobLogger.warning("There was an error trying to append data: {0}".format(e))
+
+                    # Only write the json files for steps as step results aggregate doc results
+                    # If there's output json...
+                    if r.node_output_data:
+                        jobLogger.info("There is step node data... write to data file")
+                        newChildPath = "./Step {0} ({1})/{2}_data.json".format(r.pipeline_node.id,
+                                                                               r.pipeline_node.name,
+                                                                               r.pipeline_node.name)
+                        jobLogger.info(f"Data file will be: {newChildPath}")
+                        jobResultsZipData.writestr(newChildPath, json.dumps(r.node_output_data, indent=4))
+
+                    # Write node states out
+                    jobLogger.info("Write node end state to file")
+                    newChildPath = "./Step {0} ({1})/{2}_final_state.json".format(r.pipeline_node.id,
+                                                                                  r.pipeline_node.name,
+                                                                                  r.pipeline_node.name)
+                    jobLogger.info(f"Data file will be: {newChildPath}")
+                    jobResultsZipData.writestr(newChildPath, json.dumps(r.end_state, indent=4))
+
+
+                else:
+                    jobLogger.info("There is no result data")
+
+            jobResultsZipData.close()
 
         # Use Django to write Bytes data to result file for job from memory
 
@@ -1687,7 +1827,7 @@ def packageJobResults(*args, jobId=-1, **kwargs):
             name="Job {0}".format(jobId),
             job=job,
             type='JOB',
-            output_data=json.dumps(jobData)
+            output_data=json.dumps(jobData, indent=4)
         )
         result.file.save(resultFilename, zipFile)
         result.save()

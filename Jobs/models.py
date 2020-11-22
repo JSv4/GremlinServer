@@ -274,6 +274,22 @@ class Job(models.Model):
             return 0
 
 
+def blank_json():
+    return {}
+
+
+def blank_state():
+    return {
+        'current_node': {
+            'id':-1,
+            'this_node_result_id': -1,
+            'this_node_doc_result_ids':[]
+        },
+        'parent_node_ids': [],
+        'node_results': {},
+        'doc_results': {}
+    }
+
 def digraph_jsonfield_default_value():  # This is a callable
     return {
         "offset": {
@@ -512,13 +528,26 @@ class Result(models.Model):
     # Data Input Transform Script Text
     transformed_input_data = models.TextField("Transformed Input Json Data", blank=True, default="{}")
 
-    # Data Inputs
+    # Data Inputs (OLD - TO BE DEPRECATED)
     input_settings = models.TextField("Input Settings", blank=True, default="{}")  # what input_setting were passed in
     raw_input_data = models.TextField("Raw Input Json Data", blank=True, default="{}")
 
-    # Data Outputs
-    output_data = models.TextField('Result Data', blank=False, default="{}")
+    # Data Inputs (NEW)
+    job_inputs = models.JSONField(default=blank_json)
+    node_inputs = models.JSONField(default=blank_json)
+
+    # File output
     file = models.FileField("Results File", upload_to='data/results/results/', blank=True, null=True)
+
+    # Data Outputs (OLD - TO DEPRECATE_
+    output_data = models.TextField('Result Data', blank=False, default="{}")
+
+    # Job State (start and end)
+    start_state = models.JSONField(default=blank_state)
+    end_state = models.JSONField(default=blank_state)
+
+    # Data Outputs (NEW)
+    node_output_data = models.JSONField(default=blank_json)
 
     def has_file(self):
         if self.file:

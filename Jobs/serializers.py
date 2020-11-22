@@ -355,11 +355,13 @@ class ResultSerializer(serializers.ModelSerializer):
 
         fields = ['id', 'name', 'job', 'doc', 'pipeline_node', 'start_time', 'stop_time', 'file', 'has_file', 'type',
                   'owner',  'output_data', 'transformed_input_data', 'raw_input_data',
-                  'started', 'error', 'finished', 'script_id']
+                  'started', 'error', 'finished', 'script_id', 'job_inputs', 'node_inputs', 'start_state', 'end_state',
+                  'node_output_data']
 
         read_only_fields = ['id', 'name', 'job', 'doc', 'pipeline_node', 'start_time', 'stop_time', 'has_file', 'file',
                             'type', 'owner', 'output_data', 'transformed_input_data', 'raw_input_data',
-                            'started', 'error', 'finished', 'script_id']
+                            'started', 'error', 'finished', 'script_id', 'job_inputs', 'node_inputs', 'start_state',
+                            'end_state', 'node_output_data']
 
 class LogSerializer(serializers.ModelSerializer):
 
