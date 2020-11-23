@@ -753,8 +753,12 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, nodeId=-1, scriptId=-1,
         logger.info(f"Retrieved node: {node_result}")
 
         # Check that the input files are compatible with scripts:
-        supported_doc_types = json.loads(pipeline_node.script.supported_file_types)
-        logger.info(f"Supported doc types: {supported_doc_types}")
+        supported_doc_types = {}
+        try:
+            supported_doc_types = json.loads(pipeline_node.script.supported_file_types)
+            logger.info(f"Supported doc types: {supported_doc_types}")
+        except:
+            pass
 
         if supported_doc_types and not doc.type in supported_doc_types:
             logger.info(f"Doc type {doc.type} is NOT one of supported types: {supported_doc_types}")
@@ -767,7 +771,7 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, nodeId=-1, scriptId=-1,
             ))
 
         else:
-            logger.info("Doc type is supported!")
+            logger.info("Doc type is supported or no restrictions in place.")
             jobLog.write("\nDoc type {0} IS supported by script ID #{1}".format(
                 doc.type,
                 scriptId
