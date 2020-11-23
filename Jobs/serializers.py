@@ -61,7 +61,7 @@ class PythonScriptSerializer(serializers.ModelSerializer):
             'human_name',
             'type',
             'supported_file_types',
-            'schema',
+            'json_schema',
             'mode',
             'script',
             'description',
@@ -170,10 +170,10 @@ class PipelineSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Pipeline
-        fields = ['id', 'name', 'schema', 'description', 'total_steps', 'owner', 'production', 'locked',
+        fields = ['id', 'name', 'json_schema', 'description', 'total_steps', 'owner', 'production', 'locked',
                   'supported_files', 'root_node', 'scale','x_offset', 'y_offset',
                   'install_error', 'install_error_code']
-        read_only_fields = ['id', 'total_steps', 'schema', 'owner', 'supported_files', 'root_node', 'locked',
+        read_only_fields = ['id', 'total_steps', 'owner', 'supported_files', 'root_node', 'locked',
                   'install_error', 'install_error_code']
 
 # includes nested edge and node objects. These are NOT paginated and are always expected you'd load them for a given pipeline.
@@ -185,10 +185,10 @@ class PipelineDigraphSerializer(serializers.ModelSerializer):
     class Meta:
         model = Pipeline
         depth=1
-        fields = ['id', 'name', 'schema', 'description', 'total_steps', 'owner', 'production', 'locked',
+        fields = ['id', 'name', 'json_schema', 'description', 'total_steps', 'owner', 'production', 'locked',
                   'supported_files', 'root_node', 'scale','x_offset', 'y_offset', 'edges', 'nodes',
                   'install_error', 'install_error_code']
-        read_only_fields = ['id', 'total_steps', 'schema', 'owner', 'supported_files', 'root_node', 'locked',
+        read_only_fields = ['id', 'total_steps', 'json_schema', 'owner', 'supported_files', 'root_node', 'locked',
                   'install_error', 'install_error_code']
 
 class PipelineSerializer_READONLY(serializers.ModelSerializer):
@@ -198,9 +198,9 @@ class PipelineSerializer_READONLY(serializers.ModelSerializer):
 
     class Meta:
         model = Pipeline
-        fields = ['id', 'name', 'schema', 'description', 'total_steps', 'owner', 'production', 'locked',
+        fields = ['id', 'name', 'json_schema', 'description', 'total_steps', 'owner', 'production', 'locked',
                   'supported_files', 'root_node', 'scale','x_offset', 'y_offset']
-        read_only_fields = ['id', 'name', 'schema', 'description', 'total_steps', 'owner', 'locked'
+        read_only_fields = ['id', 'name', 'json_schema', 'description', 'total_steps', 'owner', 'locked'
                             'production', 'supported_files', 'root_node', 'scale','x_offset', 'y_offset']
 
 class JobCreateSerializer(serializers.ModelSerializer):
@@ -314,10 +314,10 @@ class Full_PipelineSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Pipeline
-        fields = ['id', 'name', 'schema', 'description', 'total_steps', 'owner', 'production', 'locked',
+        fields = ['id', 'name', 'description', 'total_steps', 'owner', 'production', 'locked',
                   'supported_files', 'pipelinenodes', 'root_node', 'scale', 'x_offset', 'y_offset',
-                  'install_error', 'install_error_code']
-        read_only_fields = ['id', 'schema', 'total_steps', 'owner', 'root_node', 'locked',
+                  'install_error', 'install_error_code', 'json_schema']
+        read_only_fields = ['id', 'total_steps', 'owner', 'root_node', 'locked',
                   'install_error', 'install_error_code']
 
 class ResultSummarySerializer(serializers.ModelSerializer):

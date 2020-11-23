@@ -175,8 +175,8 @@ job_state - updated results state produced at end of job step OR merge results
             id: INT,
             this_node_result_id: id (INT),
             this_node_doc_result_ids: [doc_result_id1 (INT), doc_result_id2 (INT), doc_result_id3 (INT)],
+            parent_node_ids: [ids..]
         },
-        parent_node_ids: [ids..],
         node_results: {
             node_id (INT): {
                 doc_results: [doc_result_id1 (INT), doc_result_id2 (INT), doc_result_id3 (INT)],
@@ -238,5 +238,25 @@ See detailed `cookiecutter-django Docker documentation`_.
 
 .. _`cookiecutter-django Docker documentation`: http://cookiecutter-django.readthedocs.io/en/latest/deployment-with-docker.html
 
+Licenses and Attributions
+^^^^^^^^^^^^^^^^^^^^^^^^^
 
+- Icons
 
+  - `Starting Flags`_ - By Xela Ub, VN (`CC BY 3.0`_)
+  - `Step Arrows`_ - BY luca fruzza, IT (`CC BY 3.0`_)
+  - `Split Arrows`_ - By Hea Poh Lin, MY (`CC BY 3.0`_)
+  - `Nodes Icon`_ - By Gregor Cresnar (`CC BY 3.0`_)
+
+- Software Libraries
+
+  - React-Diagrams
+  - Django
+  - Django Rest Framework
+  - Celery
+
+.. _Starting Flags: https://thenounproject.com/search/?q=start+flag&i=314735
+.. _CC BY 3.0: https://creativecommons.org/licenses/by/3.0/
+.. _Step Arrows: https://thenounproject.com/search/?q=steps&i=1677173
+.. _Split Arrows: https://thenounproject.com/search/?q=many+arrows&i=498877
+.. _Nodes Icon: https://thenounproject.com/search/?q=node&i=159043

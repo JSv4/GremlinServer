@@ -964,7 +964,7 @@ def applyPythonScriptToJob(*args, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
 
         result.start_state['current_node']['id'] = node.id
         result.start_state['current_node']['this_node_result_id'] = result.id
-        result.start_state['parent_node_ids'] = [*parent_node_ids]
+        result.start_state['current_node']['parent_node_ids'] = [*parent_node_ids]
         result.start_state['node_results'] = {**node_results}
         result.start_state['doc_results'] = {**doc_results}
 
@@ -1214,7 +1214,7 @@ def createSharedResultForParallelExecution(*args, jobId=-1, stepId=-1, root=Fals
         logger.info(f"start state of node_result is: {node_result.start_state}")
         node_result.start_state['current_node']['id'] = node.id
         node_result.start_state['current_node']['this_node_result_id'] = node_result.id
-        node_result.start_state['parent_node_ids'] = parent_node_ids
+        node_result.start_state['current_node']['parent_node_ids'] = parent_node_ids
         node_result.start_state['node_results'] = node_results
         node_result.start_state['doc_results'] = doc_results
 
@@ -1286,7 +1286,7 @@ def resultsMerge(*args, jobId=-1, stepId=-1, **kwargs):
         node_data = {
             'type': Result.DOC,
             'doc_results': [],
-            'parent_node_ids': end_state['parent_node_ids']
+            'parent_node_ids': end_state['current_node']['parent_node_ids']
         }
 
         for result in doc_results:

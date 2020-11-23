@@ -7,6 +7,39 @@ from django.utils import timezone
 from django.contrib.auth import get_user_model
 from django.utils.translation import ugettext_lazy as _
 
+#so we can have an empty JSONField by default
+def blank_json():
+    return {}
+
+# This is a blank state object for the Result state fields (end_state and start_state)
+def blank_state():
+    return {
+        'current_node': {
+            'id':-1,
+            'this_node_result_id': -1,
+            'this_node_doc_result_ids':[]
+        },
+        'parent_node_ids': [],
+        'node_results': {},
+        'doc_results': {}
+    }
+
+# this is deprecated. REMOVE. Looks like it's stuck in a migration so I cannot delete it without
+# screwing up docker deploy I have on my dev box. Leaving it in for now but it is useless and should be removed.
+def digraph_jsonfield_default_value():
+    return {
+        "offset": {
+            "x": 0,
+            "y": 0,
+        },
+        "type": ["PIPELINE"],
+        "scale": 1,
+        "selected": {},
+        "hovered": {},
+        "nodes": [],
+        "links": []
+    }
+
 
 class TaskLogEntry(models.Model):
     # Enumerations for the task DB logger
@@ -139,8 +172,9 @@ class PythonScript(models.Model):
     env_variables = models.TextField("Environment Variables", blank=True, default="")
     env_variables_need_install = models.BooleanField("Env Variables Install Needed", default=False, blank=True)
 
-    # Expected JsonSchema goes here. Based on v7 of JsonSchema. For now, this needs to be entered manually.
-    schema = models.TextField("Input Schema", blank=True, default="")
+    # Expected JsonSchema goes here. Expects syntax v7 of JsonSchema. For now, this needs to be entered manually.
+    schema = models.TextField("Input Schema", blank=True, default="")#TODO - deprecate & replace with json__schema
+    json_schema = models.JSONField(default=blank_json)
 
     # is this script ready to use (have all imports and setup steps been executed?)
     mode = models.CharField(
@@ -274,37 +308,6 @@ class Job(models.Model):
             return 0
 
 
-def blank_json():
-    return {}
-
-
-def blank_state():
-    return {
-        'current_node': {
-            'id':-1,
-            'this_node_result_id': -1,
-            'this_node_doc_result_ids':[]
-        },
-        'parent_node_ids': [],
-        'node_results': {},
-        'doc_results': {}
-    }
-
-def digraph_jsonfield_default_value():  # This is a callable
-    return {
-        "offset": {
-            "x": 0,
-            "y": 0,
-        },
-        "type": ["PIPELINE"],
-        "scale": 1,
-        "selected": {},
-        "hovered": {},
-        "nodes": [],
-        "links": []
-    }
-
-
 class Pipeline(models.Model):
     name = models.CharField("Pipeline Name", max_length=512, default="Line Name", blank=False)
     description = models.TextField("Pipeline Description", default="", blank=True)
@@ -324,7 +327,8 @@ class Pipeline(models.Model):
     )
 
     total_steps = models.IntegerField("Step Count", blank=False, default=0)
-    schema = models.TextField("Pipeline Schema", blank=True, default="")
+    schema = models.TextField("Pipeline Schema", blank=True, default="") #TODO - deprecate & replace with json__schema
+    json_schema = models.JSONField(default=blank_json)
     supported_files = models.TextField("Supported File Types", blank=True, default="")
 
     root_node = models.ForeignKey("PipelineNode", blank=True, null=True, on_delete=models.SET_NULL)

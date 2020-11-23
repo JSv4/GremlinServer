@@ -315,7 +315,7 @@ class JobViewSet(viewsets.ModelViewSet):
     # This action will run a job up through a certain step of its pipeline
     # e.g. if we called .../Job/1/RunToStep/2 that would run the job 1 pipeline to step index 2 (#3)
     # if the provided step_number is out of range, the whole pipeline will run.
-    @action(methods=['get'], detail=True, url_name='RunToStep', url_path='RunToStep/(?P<endNodeId>[0-9]+)')
+    @action(methods=['get'], detail=True, url_name='RunToStep', url_path='RunToNode/(?P<endNodeId>[0-9]+)')
     def runToStep(self, request, pk=None, endNodeId=None):
         try:
             print(pk)
