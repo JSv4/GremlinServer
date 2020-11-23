@@ -11,7 +11,7 @@ The open source, low-code legal engineering platform.
      :alt: Black code style
 
 
-:License: GPLv3
+:License: AGPL
 
 
 Installation

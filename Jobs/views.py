@@ -576,17 +576,25 @@ class PythonScriptViewSet(viewsets.ModelViewSet):
     @action(methods=['put'], detail=True)
     def UpdateDetails(self, request, pk=None):
         try:
+            print(f"UpdateDetails for script {pk}")
             serializer = PythonScriptSerializer(data=request.data)
+            print(f"Serializer: {serializer}")
             if serializer.is_valid(raise_exception=True):
-                scriptData = serializer.data
+                print("Serializer is valid")
+                scriptData = serializer.validated_data
+                print(f"ScriptData is: {scriptData}")
                 script = PythonScript.objects.get(id=pk)
+                print("Try to update script")
                 script.__dict__.update(scriptData)
                 script.save()
+                print("Done")
                 return Response(PythonScriptSerializer(script).data)
             else:
+                print("Serializer is invalid...")
                 return Response(status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
-            return Response(e,
+            print(f"Error updating script: {e}")
+            return Response(f"{e}",
                             status=status.HTTP_400_BAD_REQUEST)
 
 
