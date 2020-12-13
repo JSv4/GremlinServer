@@ -12,7 +12,7 @@ services:
       context: .
       dockerfile: ./compose/local/django/Dockerfile
     image: gremlin_local_django
-    container_name: django
+    container_name: gremlin_django
     depends_on:
       - postgres
       - tika
@@ -31,7 +31,7 @@ services:
       context: .
       dockerfile: ./compose/production/postgres/Dockerfile
     image: postgres
-    container_name: postgres
+    container_name: gremlin_postgres
     volumes:
       - local_postgres_data:/var/lib/postgresql/data
       - local_postgres_data_backups:/backups
@@ -40,7 +40,7 @@ services:
 
   redis:
     image: redis:5.0
-    container_name: redis
+    container_name: gremlin_redis
 
   gremlinworker:
     <<: *django
@@ -60,7 +60,7 @@ services:
   celerybeat:
     <<: *django
     image: gremlin_local_django:latest
-    container_name: celerybeat
+    container_name: gremlin_celerybeat
     depends_on:
       - redis
       - postgres
@@ -71,13 +71,13 @@ services:
   flower:
     <<: *django
     image: gremlin_local_django:latest
-    container_name: flower
+    container_name: gremlin_flower
     ports:
       - "5555:5555"
     command: /start-flower
 
   tika:
     image: apache/tika:1.24.1
-    container_name: tika
+    container_name: gremlin_tika
     ports:
       - 9998:9998

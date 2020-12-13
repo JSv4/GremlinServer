@@ -4,6 +4,38 @@ from django.contrib.auth.models import AbstractUser
 from django.db.models import CharField, EmailField
 from django.urls import reverse
 from django.utils.translation import ugettext_lazy as _
+from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
+
+
+class GremlinUserManager(BaseUserManager):
+
+    def create_user(self, email, username, password, alias=None):
+        if not email:
+            raise ValueError("Must provide an e-mail")
+        if not username:
+            raise ValueError("Must provide a username")
+        if not password:
+            raise ValueError("Please provide a password")
+        if not alias:
+            alias = username
+
+        user = self.model(
+            email=self.normalize_email(email),
+            username=username)
+        user.set_password(password)
+        user.save()
+
+        return user
+
+    def create_superuser(self, email, username, password, alias=None):
+
+        user = self.create_user(email, username, password, alias=alias)
+        user.is_staff = True
+        user.is_superuser = True
+        user.role = User.ADMIN # Making sure an admin role is defined by default for super user
+        user.save()
+
+        return user
 
 
 class User(AbstractUser):
@@ -41,6 +73,8 @@ class User(AbstractUser):
     email_vector = SearchVectorField(null=True)
     name_vector = SearchVectorField(null=True)
     username_vector = SearchVectorField(null=True)
+
+    objects = GremlinUserManager()
 
     def get_absolute_url(self):
         return reverse("users:detail", kwargs={"username": self.username})

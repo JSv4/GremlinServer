@@ -1,0 +1,7 @@
+ # PostgreSQL
+# ------------------------------------------------------------------------------
+POSTGRES_HOST=postgres
+POSTGRES_PORT=5432
+POSTGRES_DB=gremlin_gplv3
+POSTGRES_USER=grmln_user
+POSTGRES_PASSWORD=|Gr|ml|in|us|3r

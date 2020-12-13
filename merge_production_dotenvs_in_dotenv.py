@@ -10,7 +10,7 @@ PRODUCTION_DOTENV_FILE_PATHS = [
     PRODUCTION_DOTENVS_DIR_PATH / ".django",
     PRODUCTION_DOTENVS_DIR_PATH / ".postgres",
 ]
-DOTENV_FILE_PATH = ROOT_DIR_PATH / ".env"
+DOTENV_FILE_PATH = ROOT_DIR_PATH / ".envs"
 
 
 def merge(
@@ -34,7 +34,7 @@ def main():
 def test_merge(tmpdir_factory, merged_file_count: int, append_linesep: bool):
     tmp_dir_path = Path(str(tmpdir_factory.getbasetemp()))
 
-    output_file_path = tmp_dir_path / ".env"
+    output_file_path = tmp_dir_path / ".envs"
 
     expected_output_file_content = ""
     merged_file_paths = []

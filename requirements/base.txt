@@ -30,7 +30,7 @@ djangorestframework==3.11.0  # https://github.com/encode/django-rest-framework
 djangorestframework-simplejwt==4.4.0
 djangorestframework-api-key==2.0.0
 djangorestframework-bulk==0.2.1
-django-storages==1.8
+django-storages==1.9.1
 PyJWT==1.7.1
 drf-yasg>=1.17.1
 
