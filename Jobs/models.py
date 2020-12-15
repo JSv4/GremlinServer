@@ -1,11 +1,23 @@
 import logging, os, operator
 
-from celery import chain
+import uuid
 from django.db import models
 from django import utils
 from django.utils import timezone
 from django.contrib.auth import get_user_model
 from django.utils.translation import ugettext_lazy as _
+from .forms import MyJSONField
+
+
+# The default JSONField validations in admin don't allow blank JSON obj unless you override JSONField
+# and forms.JsonField
+class GremlinJSONField(models.JSONField):
+
+    empty_values = [None, "", [], ()]
+
+    def formfield(self, **kwargs):
+        return super().formfield(**{"form_class": MyJSONField, **kwargs})
+
 
 #so we can have an empty JSONField by default
 def blank_json():
@@ -52,13 +64,6 @@ class TaskLogEntry(models.Model):
         (logging.FATAL, _('Fatal')),
     )
 
-    # for later... if we want to try to segregate everything by user accounts
-    owner = models.ForeignKey(
-        get_user_model(),
-        on_delete=models.CASCADE,
-        default=1
-    )
-
     result = models.ForeignKey("Result", blank=False, null=False, on_delete=models.CASCADE)
 
     logger_name = models.CharField(max_length=100)
@@ -86,13 +91,6 @@ class JobLogEntry(models.Model):
         (logging.FATAL, _('Fatal')),
     )
 
-    # for later... if we want to try to segregate everything by user accounts
-    owner = models.ForeignKey(
-        get_user_model(),
-        on_delete=models.CASCADE,
-        default=1
-    )
-
     logger_name = models.CharField(max_length=100)
     level = models.PositiveSmallIntegerField(choices=LOG_LEVELS, default=logging.ERROR, db_index=True)
     msg = models.TextField()
@@ -106,6 +104,28 @@ class JobLogEntry(models.Model):
     class Meta:
         ordering = ('-create_datetime',)
         verbose_name_plural = verbose_name = 'Job Log Entries'
+
+
+class ScriptDataFile(models.Model):
+
+    uuid = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False)
+
+    data_file = models.FileField("Script Data File", upload_to='data/data_files/', blank=True, null=True)
+
+    # Timing variables
+    creation_time = models.DateTimeField("Job Creation Date and Time", default=utils.timezone.now)
+    modified = models.DateTimeField(default=timezone.now, blank=True)
+
+    # Override save to update modified on save
+    def save(self, *args, **kwargs):
+        """ On save, update timestamps """
+        if not self.uuid:
+            self.created = timezone.now()
+        self.modified = timezone.now()
+        return super(ScriptDataFile, self).save(*args, **kwargs)
 
 
 class PythonScript(models.Model):
@@ -160,6 +180,9 @@ class PythonScript(models.Model):
     # The actual python code to execute
     script = models.TextField("Python Code", blank=True, default="")
 
+    # Reference to data file zip which will be made available to the running script if it exists.
+    data_file = models.ForeignKey("ScriptDataFile", on_delete=models.SET_NULL, null=True)
+
     # the list of python packages to install (use pip requirements.txt format)
     required_packages = models.TextField("Required Python Packages", blank=True, default="")
     package_needs_install = models.BooleanField("Package Install Needed", default=False, blank=True)
@@ -174,7 +197,7 @@ class PythonScript(models.Model):
 
     # Expected JsonSchema goes here. Expects syntax v7 of JsonSchema. For now, this needs to be entered manually.
     schema = models.TextField("Input Schema", blank=True, default="")#TODO - deprecate & replace with json__schema
-    json_schema = models.JSONField(default=blank_json)
+    json_schema = GremlinJSONField(default=blank_json)
 
     # is this script ready to use (have all imports and setup steps been executed?)
     mode = models.CharField(
@@ -328,7 +351,7 @@ class Pipeline(models.Model):
 
     total_steps = models.IntegerField("Step Count", blank=False, default=0)
     schema = models.TextField("Pipeline Schema", blank=True, default="") #TODO - deprecate & replace with json__schema
-    json_schema = models.JSONField(default=blank_json)
+    json_schema = GremlinJSONField(default=blank_json)
     supported_files = models.TextField("Supported File Types", blank=True, default="")
 
     root_node = models.ForeignKey("PipelineNode", blank=True, null=True, on_delete=models.SET_NULL)
@@ -537,8 +560,8 @@ class Result(models.Model):
     raw_input_data = models.TextField("Raw Input Json Data", blank=True, default="{}")
 
     # Data Inputs (NEW)
-    job_inputs = models.JSONField(default=blank_json)
-    node_inputs = models.JSONField(default=blank_json)
+    job_inputs = GremlinJSONField(default=blank_json)
+    node_inputs = GremlinJSONField(default=blank_json)
 
     # File output
     file = models.FileField("Results File", upload_to='data/results/results/', blank=True, null=True)
@@ -547,11 +570,11 @@ class Result(models.Model):
     output_data = models.TextField('Result Data', blank=False, default="{}")
 
     # Job State (start and end)
-    start_state = models.JSONField(default=blank_state)
-    end_state = models.JSONField(default=blank_state)
+    start_state = GremlinJSONField(default=blank_state)
+    end_state = GremlinJSONField(default=blank_state)
 
     # Data Outputs (NEW)
-    node_output_data = models.JSONField(default=blank_json)
+    node_output_data = GremlinJSONField(default=blank_json)
 
     def has_file(self):
         if self.file:

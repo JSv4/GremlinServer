@@ -154,7 +154,7 @@ def exportPipelineToYAMLObj(pipelineId):
 
 # WARNING - this runs asynchronously. It creates pipeline syncrhonously and returns the pipeline data. The pipeline locked,
 # however, and related scripts, nodes and edges get created asynchronously.
-def importPipelineFromYAML(yamlString):
+def importPipelineFromYAML(yamlString, owner):
 
     try:
         yaml = YAML()
@@ -164,6 +164,7 @@ def importPipelineFromYAML(yamlString):
         print(data)
 
         parent_pipeline = Pipeline.objects.create(
+            owner=owner,
             locked=True,
             imported=True,
             name=data['pipeline']['name'],
@@ -198,9 +199,9 @@ def importPipelineFromYAML(yamlString):
         # does everything in serial, so it's slower in theory, but these things execute pretty quickly and I expect imports
         # to be rare. Can work on improving this later.
         chain([
-            importScriptsFromYAML.si(scripts=data['scripts']),
-            importNodesFromYAML.s(nodes=data['nodes'], parentPipelineId=parent_pipeline.id),
-            importEdgesFromYAML.s(edges=data['edges'], parentPipelineId=parent_pipeline.id),
+            importScriptsFromYAML.si(scripts=data['scripts'], ownerId=owner.id),
+            importNodesFromYAML.s(nodes=data['nodes'], parentPipelineId=parent_pipeline.id, ownerId=owner.id),
+            importEdgesFromYAML.s(edges=data['edges'], parentPipelineId=parent_pipeline.id, ownerId=owner.id),
             linkRootNodeFromYAML.s(pipeline_data=data['pipeline'], parentPipelineId=parent_pipeline.id),
             *script_setup_steps,
             unlockPipeline.s(pipelineId=parent_pipeline.id)

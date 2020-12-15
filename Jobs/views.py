@@ -59,13 +59,14 @@ LOG_LEVELS = {
     logging.FATAL: 'Fatal',
 }
 
+
 # Write-Only Permissions on Script, Pipeline and PipelineStep for users with
 # role = LAWYER
 class WriteOnlyIfNotAdminOrEng(BasePermission):
-
     """
     Allows write access only to "ADMIN" or "LEGAL_ENG" users.
     """
+
     def has_permission(self, request, view):
         if request.user.role == "ADMIN" or request.user.role == "LEGAL_ENG":
             return True
@@ -75,12 +76,13 @@ class WriteOnlyIfNotAdminOrEng(BasePermission):
 
 # Permission class only gives access to admin or legal engineers
 class AdminOrLegalEngAccessOnly(BasePermission):
-
     """
     Allows access only to "ADMIN" users.
     """
+
     def has_permission(self, request, view):
         return request.user.role == User.LEGAL_ENG or request.user.role == User.ADMIN
+
 
 # From here: https://stackoverflow.com/questions/38697529/how-to-return-generated-file-download-with-django-rest-framework
 class PassthroughRenderer(renderers.BaseRenderer):
@@ -105,7 +107,6 @@ class ListInputModelMixin(object):
 
 
 class DocumentViewSet(viewsets.ModelViewSet):
-
     queryset = Document.objects.filter().prefetch_related('job').order_by('-name')
     filter_fields = ['id', 'name', 'extracted', 'job']
 
@@ -113,9 +114,13 @@ class DocumentViewSet(viewsets.ModelViewSet):
     serializer_class = DocumentSerializer
     permission_classes = [IsAuthenticated]
 
+    # Need to inject request user into the serializer
+    def perform_create(self, serializer):
+        serializer.save(owner=self.request.user)
+
     def get_queryset(self, *args, **kwargs):
-        #for legal engineers and lawyers, don't show them jobs or docs that don't belong to them.
-        if self.request.user.role == "LEGAL_ENG"  or self.request.user.role == "LAWYER":
+        # for legal engineers and lawyers, don't show them jobs or docs that don't belong to them.
+        if self.request.user.role == "LEGAL_ENG" or self.request.user.role == "LAWYER":
             return self.queryset.filter(owner=self.request.user.id)
         else:
             return self.queryset
@@ -172,6 +177,10 @@ class LogViewSet(viewsets.ModelViewSet):
     serializer_class = LogSerializer
     permission_classes = [IsAuthenticated]
 
+    # Need to inject request user into the serializer
+    def perform_create(self, serializer):
+        serializer.save(owner=self.request.user)
+
 
 class JobLogViewSet(viewsets.ModelViewSet):
     queryset = JobLogEntry.objects.all().order_by('create_datetime')
@@ -180,6 +189,10 @@ class JobLogViewSet(viewsets.ModelViewSet):
     pagination_class = MediumResultsSetPagination
     serializer_class = LogSerializer
     permission_classes = [IsAuthenticated]
+
+    # Need to inject request user into the serializer
+    def perform_create(self, serializer):
+        serializer.save(owner=self.request.user)
 
 
 class ProjectSchema(AutoSchema):
@@ -250,12 +263,12 @@ class ProjectViewSet(GenericAPIView):
             return Response(serializer.data, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_401_UNAUTHORIZED)
 
-class JobViewSet(viewsets.ModelViewSet):
 
+class JobViewSet(viewsets.ModelViewSet):
     queryset = Job.objects.annotate(num_docs=Count('document')).select_related('owner', 'pipeline').all()
     pagination_class = MediumResultsSetPagination
     permission_classes = [IsAuthenticated]
-    filterset_class= JobFilter
+    filterset_class = JobFilter
 
     # mapping serializer into the action
     serializer_classes = {
@@ -267,6 +280,10 @@ class JobViewSet(viewsets.ModelViewSet):
         'destroy': JobCreateSerializer
     }
     default_serializer_class = JobSerializer  # Your default serializer
+
+    # Need to inject request user into the serializer
+    def perform_create(self, serializer):
+        serializer.save(owner=self.request.user)
 
     def get_serializer_class(self):
         return self.serializer_classes.get(self.action, self.default_serializer_class)
@@ -394,6 +411,7 @@ class JobViewSet(viewsets.ModelViewSet):
             return Response(e,
                             status=status.HTTP_400_BAD_REQUEST)
 
+
 class FileResultsViewSet(viewsets.ModelViewSet):
     queryset = Result.objects.select_related('owner', 'job', 'pipeline_node', 'doc').exclude(
         file='')
@@ -401,6 +419,10 @@ class FileResultsViewSet(viewsets.ModelViewSet):
     pagination_class = SmallResultsSetPagination
     serializer_class = ResultSummarySerializer
     permission_classes = [IsAuthenticated]
+
+    # Need to inject request user into the serializer
+    def perform_create(self, serializer):
+        serializer.save(owner=self.request.user)
 
 
 class ResultsViewSet(viewsets.ModelViewSet):
@@ -410,6 +432,10 @@ class ResultsViewSet(viewsets.ModelViewSet):
     pagination_class = None
     serializer_class = ResultSummarySerializer
     permission_classes = [IsAuthenticated]
+
+    # Need to inject request user into the serializer
+    def perform_create(self, serializer):
+        serializer.save(owner=self.request.user)
 
     # Super useful docs on routing (unsurprisingly): https://www.django-rest-framework.org/api-guide/routers/
     # Also, seems like there's a cleaner way to do this? Working for now but I don't like it doesn't integrate with Django filters.
@@ -532,7 +558,12 @@ class PythonScriptViewSet(viewsets.ModelViewSet):
     serializer_class = PythonScriptSummarySerializer
     permission_classes = [IsAuthenticated & WriteOnlyIfNotAdminOrEng]
 
-    # I want to use different serializer for create vs other actions.
+    # Need to inject request user into the serializer
+    def perform_create(self, serializer):
+        serializer.save(owner=self.request.user)
+
+        # I want to use different serializer for create vs other actions.
+
     # Based on the guidance here:https://stackoverflow.com/questions/22616973/django-rest-framework-use-different-serializers-in-the-same-modelviewset
     def get_serializer_class(self):
 
@@ -596,7 +627,6 @@ class PythonScriptViewSet(viewsets.ModelViewSet):
             print(f"Error updating script: {e}")
             return Response(f"{e}",
                             status=status.HTTP_400_BAD_REQUEST)
-
 
     # Export the script as a gremlin archive
     @action(methods=['get'], detail=True)
@@ -666,12 +696,13 @@ class PythonScriptViewSet(viewsets.ModelViewSet):
 
             filename = f"{script.name}-gremlin_export.zip"
             response = FileResponse(outputBytes, as_attachment=True, filename=filename)
-            response['filename']= filename
+            response['filename'] = filename
             return response
 
         except Exception as e:
             return Response(e,
                             status=status.HTTP_400_BAD_REQUEST)
+
 
 class UploadPipelineViewSet(APIView):
     allowed_methods = ['post']
@@ -692,7 +723,7 @@ class UploadPipelineViewSet(APIView):
             yamlString = request.FILES['file'].read()
             print("Yaml string:")
             print(yamlString)
-            parent_pipeline = importPipelineFromYAML(yamlString)
+            parent_pipeline = importPipelineFromYAML(yamlString, request.user)
             serializer = PipelineSerializer(parent_pipeline)
 
             print(f"Should return: {serializer.data}")
@@ -706,8 +737,8 @@ class UploadPipelineViewSet(APIView):
             return Response(e,
                             status=status.HTTP_400_BAD_REQUEST)
 
-class UploadScriptViewSet(APIView):
 
+class UploadScriptViewSet(APIView):
     allowed_methods = ['post']
     permission_classes = [IsAuthenticated & WriteOnlyIfNotAdminOrEng]
     parser_classes = [FileUploadParser]
@@ -779,9 +810,10 @@ class UploadScriptViewSet(APIView):
 
                 # Create a script
                 script = PythonScript.objects.create(
+                    owner=request.user,
                     script=script,
                     name=name,
-                    human_name=name.replace(" ","_"),
+                    human_name=name.replace(" ", "_"),
                     description=description,
                     supported_file_types=supported_file_types,
                     env_variables=env_variables,
@@ -816,7 +848,12 @@ class PipelineSummaryViewSet(viewsets.ModelViewSet):
 
     pagination_class = SmallResultsSetPagination
     permission_classes = [IsAuthenticated & WriteOnlyIfNotAdminOrEng]
-    filterset_class= PipelineFilter
+    filterset_class = PipelineFilter
+
+    # Need to inject request user into the serializer
+    def perform_create(self, serializer):
+        serializer.save(owner=self.request.user)
+
 
 class PipelineViewSet(viewsets.ModelViewSet):
     # You can sort the nested objects if you want when you prefetch them. You can also presort them at serialization time
@@ -828,6 +865,10 @@ class PipelineViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated & WriteOnlyIfNotAdminOrEng]
     filterset_class = PipelineFilter
     serializer_class = PipelineSummarySerializer
+
+    # Need to inject request user into the serializer
+    def perform_create(self, serializer):
+        serializer.save(owner=self.request.user)
 
     # Clears any existing test jobs and creates a new one.
     # Clears any existing test jobs and creates a new one.
@@ -842,6 +883,7 @@ class PipelineViewSet(viewsets.ModelViewSet):
 
         pipeline = Pipeline.objects.get(id=pk)
         test_job = Job.objects.create(
+            owner=request.user,
             name="TEST JOB",
             type="TEST",
             creation_time=datetime.now(),
@@ -865,20 +907,20 @@ class PipelineViewSet(viewsets.ModelViewSet):
 
         except Exception as e:
             return Response(e,
-                        status=status.HTTP_400_BAD_REQUEST)
+                            status=status.HTTP_400_BAD_REQUEST)
 
     @action(methods=['get'], detail=True)
     def get_full_pipeline(self, request, pk=None):
 
         try:
 
-            pipeline = Pipeline.objects.prefetch_related('edges','nodes','owner').get(id=pk)
+            pipeline = Pipeline.objects.prefetch_related('edges', 'nodes', 'owner').get(id=pk)
             serializer = PipelineDigraphSerializer(pipeline, many=False)
             return Response(serializer.data)
 
         except Exception as e:
             return Response(e,
-                        status=status.HTTP_400_BAD_REQUEST)
+                            status=status.HTTP_400_BAD_REQUEST)
 
     # Export script as YAML
     @action(methods=['get'], detail=True)
@@ -903,12 +945,13 @@ class PipelineViewSet(viewsets.ModelViewSet):
     @action(methods=['get'], detail=True)
     def scripts(self, request, pk=None):
         try:
-            pipeline=Pipeline.objects.get(pk=pk)
+            pipeline = Pipeline.objects.get(pk=pk)
             scripts = PythonScript.objects.filter(pipelinenode__parent_pipeline=pipeline)
             return Response(PythonScriptSummarySerializer(scripts, many=True).data)
 
         except Exception as e:
             return JsonResponse({"error": "ERROR: {0}".format(e)})
+
 
 # This mixin lets DRF inbound serialized determine if a list or single object is being passed in... IF, it's a list,
 # will instantiate any serializer with the many=True option, allowing for bulk updates and creates.
@@ -921,6 +964,10 @@ class PipelineStepViewSet(ListInputModelMixin, viewsets.ModelViewSet):
     pagination_class = None
     serializer_class = Full_PipelineStepSerializer
     permission_classes = [IsAuthenticated & WriteOnlyIfNotAdminOrEng]
+
+    # Need to inject request user into the serializer
+    def perform_create(self, serializer):
+        serializer.save(owner=self.request.user)
 
     @action(methods=['get'], detail=True, url_name='JobLogs', url_path='JobLogs/(?P<job_id>[0-9]+)')
     def logs(self, request, pk=None, job_id=None):
@@ -956,7 +1003,6 @@ class PipelineStepViewSet(ListInputModelMixin, viewsets.ModelViewSet):
         except Exception as e:
             return Response(e,
                             status=status.HTTP_400_BAD_REQUEST)
-
 
     @action(methods=['put'], detail=False)
     def test_transform_script(self, request):
@@ -1001,6 +1047,10 @@ class EdgeViewSet(ListInputModelMixin, viewsets.ModelViewSet):
     serializer_class = EdgeSerializer
     permission_classes = [IsAuthenticated & WriteOnlyIfNotAdminOrEng]
 
+    # Need to inject request user into the serializer
+    def perform_create(self, serializer):
+        serializer.save(owner=self.request.user)
+
     # Export script as YAML
     @action(methods=['get'], detail=True)
     def ExportToYAML(self, request, pk=None):
@@ -1020,7 +1070,6 @@ class EdgeViewSet(ListInputModelMixin, viewsets.ModelViewSet):
 
 
 class DashboardAggregatesViewSet(APIView):
-
     allowed_methods = ['get']
     permission_classes = [AdminOrLegalEngAccessOnly]
 

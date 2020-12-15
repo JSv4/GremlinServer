@@ -221,7 +221,7 @@ for the code behind the task types described below. There are other helper funct
    your own root node.
 
 #. The runJob task asynchronously calls a recursive method buildNodePipelineRecursively(pipeline, start_node), Gremlin
-   traverses the specified pipeline from the specified root to build a sequential, in-order list of nodes that must be run.
+   traverses the specified pipeline from the specified root to build a sequential, in-order list of nodes that must be run
    for this job. This is probably leaving some performance on the table as the pipeline nodes always runs in order.
 
    #. Certain nodes run in parallel over all docs BUT execution completes and Gremlin then takes the next node and runs that.

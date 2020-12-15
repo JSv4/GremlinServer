@@ -1,11 +1,12 @@
 from __future__ import absolute_import, unicode_literals
 
-import zipfile, traceback, tempfile, subprocess, sys, codecs, os, io, json
+import zipfile, traceback, tempfile, subprocess, sys, codecs, os, io, json, time
 import celery
 import docx2txt
 import tika  # python wrapper for tika server
 import logging
 import copy
+import pytz
 
 from pathlib import Path
 from zipfile import ZipFile
@@ -40,6 +41,9 @@ from .task_constants import JOB_FAILED_DID_NOT_FINISH, \
 # Tika Extraction Setup
 tika.initVM()  # initialize tika object
 from tika import parser  # then import Tika parser.
+
+# Create a Pytz obj
+utc=pytz.UTC
 
 # Excellent django logging guidance here: https://docs.python.org/3/howto/logging-cookbook.html
 logger = logging.getLogger(__name__)
@@ -313,6 +317,8 @@ def runScriptEnvVarInstaller(*args, scriptId=-1, oldScriptId=-1, env_variables=N
 
 @celery_app.task(base=FaultTolerantTask, name="Run Job To Node")
 def runJobToNode(*args, jobId=-1, endNodeId=-1, **kwargs):
+
+
     try:
 
         if jobId == -1:
@@ -327,10 +333,10 @@ def runJobToNode(*args, jobId=-1, endNodeId=-1, **kwargs):
         if len(jobs) != 1:
             raise PipelineError(message="ERROR - There appears to be no job with jobId = {0}.".format(jobId))
 
+        job = jobs[0]
+
         # Redirect stdout and setup a job logger which will collect stdout on finish and then write to DB
         jobLogger = JobLogger(jobId=jobId, name="runJob")
-
-        job = jobs[0]
 
         job.start_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
         job.queued = False
@@ -379,7 +385,7 @@ def runJobToNode(*args, jobId=-1, endNodeId=-1, **kwargs):
                 celery_jobs.append(createSharedResultForParallelExecution.si(jobId=jobId, stepId=node.id))
                 celery_jobs.append(chord(
                     group([extractTextForDoc.si(docId=d.id) for d in jobDocs]),
-                    resultsMerge.si(jobId=jobId, stepId=node.id)))
+                    resultsMerge.s(jobId=jobId, stepId=node.id)))
 
             # TODO - handle packaging step separately similar to the root_node above
             # For through jobs...
@@ -388,12 +394,12 @@ def runJobToNode(*args, jobId=-1, endNodeId=-1, **kwargs):
                     celery_jobs.append(createSharedResultForParallelExecution.si(jobId=jobId, stepId=node.id))
                     celery_jobs.append(chord(
                         group([applyPythonScriptToJobDoc.s(docId=d.id, jobId=jobId, nodeId=node.id,
-                                                           scriptId=node.script.id)
+                                                           scriptId=node.script.id, ownerId=job.owner.id)
                                for d in jobDocs]),
-                        resultsMerge.si(jobId=jobId, stepId=node.id)))
+                        resultsMerge.s(jobId=jobId, stepId=node.id)))
                 elif node.script.type == PythonScript.RUN_ON_JOB:
                     celery_jobs.append(
-                        applyPythonScriptToJob.s(jobId=jobId, nodeId=node.id, scriptId=node.script.id))
+                        applyPythonScriptToJob.s(jobId=jobId, nodeId=node.id, scriptId=node.script.id, ownerId=job.owner.id))
                 else:
                     raise PipelineError(message="{0} - {1}".format(JOB_FAILED_DID_NOT_FINISH,
                                                                    "Unrecognized script type: {0}".format(
@@ -416,18 +422,20 @@ def runJobToNode(*args, jobId=-1, endNodeId=-1, **kwargs):
     except Exception as e:
         returnMessage = "{0} - Error on Run Job #{1}: {2}".format(JOB_FAILED_DID_NOT_FINISH, jobId, e)
         stopJob(jobId=jobId, status=returnMessage, error=True)
-        jobLogger.error(returnMessage)
+        logger.error(returnMessage)
         return returnMessage
 
 
 @celery_app.task(base=FaultTolerantTask, name="Run Job")
 def runJob(*args, jobId=-1, **kwargs):
-    temp_out = io.StringIO()
-    jobLogger = JobLogger(jobId=jobId, name="runJob")
 
     try:
 
         job = Job.objects.prefetch_related('pipeline').get(id=jobId)
+
+        temp_out = io.StringIO()
+        jobLogger = JobLogger(jobId=jobId, name="runJob")
+
         jobDocs = Document.objects.filter(job=jobId)
         pipeline = job.pipeline
         root = pipeline.root_node
@@ -470,7 +478,7 @@ def runJob(*args, jobId=-1, **kwargs):
                 celery_jobs.append(createSharedResultForParallelExecution.si(jobId=jobId, stepId=node.id, root=True))
                 celery_jobs.append(chord(
                     group([extractTextForDoc.si(docId=d.id) for d in jobDocs]),
-                    resultsMerge.si(jobId=jobId, stepId=node.id)))
+                    resultsMerge.s(jobId=jobId, stepId=node.id)))
 
             # For through scripts...
             elif node.type == "THROUGH_SCRIPT":
@@ -478,12 +486,12 @@ def runJob(*args, jobId=-1, **kwargs):
                     celery_jobs.append(createSharedResultForParallelExecution.si(jobId=jobId, stepId=node.id))
                     celery_jobs.append(chord(
                         group([applyPythonScriptToJobDoc.s(docId=d.id, jobId=jobId, nodeId=node.id,
-                                                           scriptId=node.script.id)
+                                                           scriptId=node.script.id, ownerId=job.owner.id)
                                for d in jobDocs]),
-                        resultsMerge.si(jobId=jobId, stepId=node.id)))
+                        resultsMerge.s(jobId=jobId, stepId=node.id)))
                 elif node.script.type == PythonScript.RUN_ON_JOB:
                     celery_jobs.append(
-                        applyPythonScriptToJob.s(jobId=jobId, nodeId=node.id, scriptId=node.script.id))
+                        applyPythonScriptToJob.s(jobId=jobId, nodeId=node.id, scriptId=node.script.id, ownerId=job.owner.id))
                 else:
                     raise PipelineError(message="{0} - {1}".format(JOB_FAILED_DID_NOT_FINISH,
                                                                    "Unrecognized script type: {0}".format(
@@ -508,8 +516,6 @@ def runJob(*args, jobId=-1, **kwargs):
 
         returnMessage = "{0} - Error on Run Job #{1}: {2}".format(JOB_FAILED_DID_NOT_FINISH, jobId, e)
         stopJob(jobId=jobId, status=returnMessage, error=True)
-        jobLogger.error(returnMessage)
-        jobLogger.info(temp_out.getvalue())
         return returnMessage
 
 
@@ -642,6 +648,9 @@ def unlockScript(*args, scriptId=-1, oldScriptId=-1, installer=False, **kwargs):
 # shutdown the job
 @celery_app.task(base=FaultTolerantTask, name="Stop Current Pipeline")
 def stopPipeline(*args, jobId=-1, **kwargs):
+
+    job = Job.objects.prefetch_related('owner', 'pipeline').get(pk=jobId)
+
     temp_out = io.StringIO()
     jobLogger = JobLogger(jobId=jobId, name="runJob")
     status = JOB_FAILED_DID_NOT_FINISH
@@ -668,9 +677,6 @@ def stopPipeline(*args, jobId=-1, **kwargs):
     # Stop the job
     stopJob(jobId=jobId, status=status, error=error)
 
-    # If we have a specified someone to contact on job completion,
-    # send email to them alerting them of completion
-    job = Job.objects.prefetch_related('owner', 'pipeline').get(pk=jobId)
     if job.notification_email:
         SendJobFinishedEmail(job.notification_email, job.owner.username, status, job.name,
                              job.pipeline.name, job.pipeline.description)
@@ -695,10 +701,6 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, nodeId=-1, scriptId=-1,
         jobLogger.info(
             f"applyPythonScriptToJobDoc(docId={docId}, jobId={jobId}, nodeId={nodeId}, scriptId={scriptId}) - A preceding job has failed. Received this message: {args[0]}")
         return args[0]
-
-    # Placeholder for results
-    result = None
-    result_data = {}
 
     try:
 
@@ -730,6 +732,7 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, nodeId=-1, scriptId=-1,
 
         # Setup the result for this node / script
         result = Result.objects.create(
+            owner=job.owner,
             name="Job: {0} | Pipeline Node #{1}".format(jobId, nodeId),
             job_id=jobId,
             pipeline_node_id=nodeId,
@@ -747,10 +750,19 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, nodeId=-1, scriptId=-1,
         pipeline_node = PipelineNode.objects.get(id=nodeId)
         script = pipeline_node.script
 
+        # Check storage type so we load proper format
+        usingS3 = (
+                settings.DEFAULT_FILE_STORAGE == "gremlin_gplv3.utils.storages.MediaRootS3Boto3Storage")
+        logger.info("UsingS3: {0}".format(usingS3))
+        jobLog.write("UsingS3: {0}".format(usingS3))
+
         # Load step result from earlier
         logger.info("Try to fetch aggregate step result created earlier:")
         node_result = Result.objects.get(pipeline_node=pipeline_node, job=job, type=Result.STEP)
         logger.info(f"Retrieved node: {node_result}")
+
+        # variable to hold zip file bytes for data obj
+        data_zip_obj = None
 
         # Check that the input files are compatible with scripts:
         supported_doc_types = {}
@@ -777,15 +789,143 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, nodeId=-1, scriptId=-1,
                 scriptId
             ))
 
+        # Try to load script data file if it exists
+        logger.info("Check for Script data file.")
+        if script.data_file:
+
+            logger.info("There is a data file... ")
+            jobLog.write("\nThere is a data file...")
+
+            data_file_obj = script.data_file
+            temp_dir = f"/tmp/data/{data_file_obj.uuid}"
+
+            logger.info("Check to see if a tmp directory exists... (to cut down on bandwidth & time redownloading")
+            jobLog.write("\nCheck to see if a tmp directory exists... (to cut down on bandwidth & time redownloading")
+
+            if os.path.isdir(temp_dir):
+
+                logger.info(
+                    f"Directory {temp_dir} exists... Check last modified and, if data file obj is newer, replace tmp dir contents")
+                jobLog.write(
+                    "\nDirectory exists... Check last modified and, if data file obj is newer, replace tmp dir contents")
+
+                if not os.path.isfile(f"{temp_dir}/data.zip"):
+
+                    # Load the document bytes
+                    logger.info("Local directory exists... BUT file is not in the dir")
+                    logger.info("Copy local file to /tmp")
+
+                    # if we're using Boto S3, we need to interact with the files differently
+                    if usingS3:
+                        filename = data_file_obj.data_file.name
+                        jobLog.write(str(filename))
+
+                    else:
+                        jobLog.write("Not using S3")
+                        filename = data_file_obj.data_file.path
+
+                    logger.info(f"Data file name: {filename}")
+
+                    # Load the file object from Django storage backend, save it to local /tmp dir
+                    data_file_bytes = default_storage.open(filename, mode='rb').read()
+                    with open(f"{temp_dir}/data.zip", "wb") as f:
+                        f.write(data_file_bytes)
+                        data_zip_bytes = io.BytesIO(data_file_bytes)
+
+                    logger.info(f"Loaded: {data_file_bytes}")
+
+                else:
+
+                    folder_last_modified_datetime = datetime.utcfromtimestamp(max(os.path.getmtime(root) for root, _, _ in os.walk(temp_dir)))
+                    logger.info(f"Server data file last modified: {folder_last_modified_datetime}")
+
+                    if data_file_obj.modified.replace(tzinfo=utc) > folder_last_modified_datetime.replace(tzinfo=utc):
+
+                        logger.info("Appears this local file is out of date... Redownload data file.")
+                        jobLog.write("\nAppears this local file is out of date... Redownload data file.")
+
+                        # Load the document bytes
+                        logger.info("Copy local file to /tmp")
+
+                        # if we're using Boto S3, we need to interact with the files differently
+                        if usingS3:
+                            filename = data_file_obj.data_file.name
+                            jobLog.write(str(filename))
+
+                        else:
+                            jobLog.write("Not using S3")
+                            filename = data_file_obj.data_file.path
+
+                        logger.info(f"Data file name: {filename}")
+
+                        # Load the file object from Django storage backend, save it to local /tmp dir
+                        data_file_bytes = default_storage.open(filename, mode='rb').read()
+                        with open(f"{temp_dir}/data.zip", "wb") as f:
+                            f.write(data_file_bytes)
+                            data_zip_bytes = io.BytesIO(f.read())
+
+                        logger.info("Loaded")
+
+                    else:
+                        logger.info("Local data file appears up-to-date. Use local file.")
+                        jobLog.write("\nLocal data file appears up-to-date. Use local file.")
+
+                        # Load the file object from Django storage backend, save it to local /tmp dir
+                        with open(f"{temp_dir}/data.zip", "rb") as f:
+                            data_zip_bytes = io.BytesIO(f.read())
+
+                        logger.info(f"Loaded bytes: {data_zip_bytes}")
+
+                data_zip_obj = zipfile.ZipFile(data_zip_bytes)
+                logger.info(f"Data zip obj: {data_zip_obj}")
+
+            else:
+
+                logger.info(
+                    f"Directory DOES NOT exist. Create directory and download data file to {temp_dir}")
+                jobLog.write(
+                    f"\nDirectory DOES NOT exist. Create directory and download data file to {temp_dir}")
+
+                if not os.path.isdir('/tmp/data'):
+                    os.mkdir('/tmp/data')
+
+                os.mkdir(temp_dir)
+
+                logger.info("Directory created...")
+                logger.info("Loading and saving local file...")
+
+                # if we're using Boto S3, we need to interact with the files differently
+                if usingS3:
+                    filename = data_file_obj.data_file.name
+                    jobLog.write(str(filename))
+
+                else:
+                    jobLog.write("Not using S3")
+                    filename = data_file_obj.data_file.path
+
+                logger.info(f"Data file name: {filename}")
+
+                # Load the file object from Django storage backend, save it to local /tmp dir
+                data_file_bytes = default_storage.open(filename, mode='rb').read()
+
+                with open(f"{temp_dir}/data.zip", "wb") as f:
+                    f.write(data_file_bytes)
+                    data_zip_bytes = io.BytesIO(data_file_bytes)
+
+                data_zip_obj = zipfile.ZipFile(data_zip_bytes)
+                logger.info("File loaded")
+
+        else:
+            logger.info("No script data file... ")
+            jobLog.write("\nNo script data file...")
+
+        logger.info(f"Loaded data file: {data_zip_obj}")
+
         # Try to load the document into byte object to be passed into user scripts
         # User scripts will NOT get any of the underlying django objs. This abstracts
         # away the underlying django / celery system and also makes it harder to do bad
         # things
         docBytes = None
-
-        usingS3 = (
-            settings.DEFAULT_FILE_STORAGE == "gremlin_gplv3.utils.storages.MediaRootS3Boto3Storage")
-        jobLog.write("UsingS3: {0}".format(usingS3))
 
         # Load the document bytes
         logger.info("Trying to load doc bytes")
@@ -803,6 +943,7 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, nodeId=-1, scriptId=-1,
 
             # Load the file object from Django storage backend
             docBytes = default_storage.open(filename, mode='rb').read()
+
         logger.info("Loaded")
 
         logger.info("Checked extract state")
@@ -837,6 +978,7 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, nodeId=-1, scriptId=-1,
             nodeInputs=node_result.node_inputs,
             jobInputs=node_result.job_inputs,
             previousData=transformed_data,
+            dataZip=data_zip_obj,
             logger=scriptLogger,
             **kwargs)
 
@@ -855,7 +997,7 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, nodeId=-1, scriptId=-1,
                 "./step_results/{0}/{1}/{2}-{3}.{4}".format(jobId, nodeId, doc.id, name, file_ext),
                 file_data)
 
-        result_data = None
+        result_data = None #Change to {}
         if data: result_data = copy.deepcopy(data)
 
         logger.info("Store results in doc result.")
@@ -895,6 +1037,7 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, nodeId=-1, scriptId=-1,
 
 @celery_app.task(base=FaultTolerantTask, name="Celery Wrapper for Python Job Task")
 def applyPythonScriptToJob(*args, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
+
     nodeLog = io.StringIO()  # Memory object to hold job logs for job-level commands (will redirect print statements)
     jobLogger = JobLogger(jobId=jobId, name="applyPythonScriptToJob")
 
@@ -927,6 +1070,7 @@ def applyPythonScriptToJob(*args, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
 
         # If we're cleared for launch, load required objs from db and create holder result
         result = Result.objects.create(
+            owner=job.owner,
             name="Pipeline: {0} | Step #{1}".format(job.pipeline.id, nodeId),
             job=job,
             pipeline_node_id=nodeId,
@@ -940,6 +1084,9 @@ def applyPythonScriptToJob(*args, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
 
         node = PipelineNode.objects.get(id=nodeId)
         script = node.script
+
+        # variable to hold zip file bytes for data obj
+        data_zip_obj = None
 
         # setup a results object for this node and preload pre-run state and inputs
         # Build json inputs for job, which are built from both step settings in the job settings and
@@ -965,13 +1112,11 @@ def applyPythonScriptToJob(*args, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
             pass
 
         logger.info(f"Got result start")
-
         result.start_state['current_node']['id'] = node.id
         result.start_state['current_node']['this_node_result_id'] = result.id
         result.start_state['current_node']['parent_node_ids'] = [*parent_node_ids]
         result.start_state['node_results'] = {**node_results}
         result.start_state['doc_results'] = {**doc_results}
-
         logger.info(f"start state: {result.start_state}")
 
         # We're building the result for this node PRIOR to running it
@@ -1013,6 +1158,132 @@ def applyPythonScriptToJob(*args, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
         nodeLog.write(message)
         logger.info(message)
 
+        ########################################## START DATA FILE LOADING #############################################
+        # Try to load script data file if it exists
+        logger.info("Check for Script data file.")
+        if script.data_file:
+
+            logger.info("There is a data file... ")
+
+            # Check storage type so we load proper format
+            usingS3 = (
+                    settings.DEFAULT_FILE_STORAGE == "gremlin_gplv3.utils.storages.MediaRootS3Boto3Storage")
+            logger.info("UsingS3: {0}".format(usingS3))
+
+            data_file_obj = script.data_file
+            temp_dir = f"/tmp/data/{data_file_obj.uuid}"
+
+            logger.info("Check to see if a tmp directory exists... (to cut down on bandwidth & time redownloading")
+
+            if os.path.isdir(temp_dir):
+
+                logger.info(
+                    f"Directory {temp_dir} exists... Check last modified and, if data file obj is newer, replace tmp dir contents")
+
+                if not os.path.isfile(f"{temp_dir}/data.zip"):
+
+                    # Load the document bytes
+                    logger.info("Local directory exists... BUT file is not in the dir")
+                    logger.info("Copy local file to /tmp")
+
+                    # if we're using Boto S3, we need to interact with the files differently
+                    if usingS3:
+                        filename = data_file_obj.data_file.name
+
+                    else:
+                        filename = data_file_obj.data_file.path
+
+                    logger.info(f"Data file name: {filename}")
+
+                    # Load the file object from Django storage backend, save it to local /tmp dir
+                    data_file_bytes = default_storage.open(filename, mode='rb').read()
+                    with open(f"{temp_dir}/data.zip", "wb") as f:
+                        f.write(data_file_bytes)
+                        data_zip_bytes = io.BytesIO(data_file_bytes)
+
+                    logger.info(f"Loaded: {data_file_bytes}")
+
+                else:
+
+                    folder_last_modified_datetime = datetime.utcfromtimestamp(
+                        max(os.path.getmtime(root) for root, _, _ in os.walk(temp_dir)))
+                    logger.info(f"Server data file last modified: {folder_last_modified_datetime}")
+
+                    if data_file_obj.modified.replace(tzinfo=utc) > folder_last_modified_datetime.replace(tzinfo=utc):
+
+                        logger.info("Appears this local file is out of date... Redownload data file.")
+
+                        # Load the document bytes
+                        logger.info("Copy local file to /tmp")
+
+                        # if we're using Boto S3, we need to interact with the files differently
+                        if usingS3:
+                            filename = data_file_obj.data_file.name
+
+                        else:
+                            filename = data_file_obj.data_file.path
+
+                        logger.info(f"Data file name: {filename}")
+
+                        # Load the file object from Django storage backend, save it to local /tmp dir
+                        data_file_bytes = default_storage.open(filename, mode='rb').read()
+                        with open(f"{temp_dir}/data.zip", "wb") as f:
+                            f.write(data_file_bytes)
+                            data_zip_bytes = io.BytesIO(f.read())
+
+                        logger.info("Loaded")
+
+                    else:
+                        logger.info("Local data file appears up-to-date. Use local file.")
+
+                        # Load the file object from Django storage backend, save it to local /tmp dir
+                        with open(f"{temp_dir}/data.zip", "rb") as f:
+                            data_zip_bytes = io.BytesIO(f.read())
+
+                        logger.info(f"Loaded bytes: {data_zip_bytes}")
+
+                data_zip_obj = zipfile.ZipFile(data_zip_bytes)
+                logger.info(f"Data zip obj: {data_zip_obj}")
+
+            else:
+
+                logger.info(
+                    f"Directory DOES NOT exist. Create directory and download data file to {temp_dir}")
+
+                if not os.path.isdir('/tmp/data'):
+                    os.mkdir('/tmp/data')
+
+                os.mkdir(temp_dir)
+
+                logger.info("Directory created...")
+                logger.info("Loading and saving local file...")
+
+                # if we're using Boto S3, we need to interact with the files differently
+                if usingS3:
+                    filename = data_file_obj.data_file.name
+
+                else:
+                    filename = data_file_obj.data_file.path
+
+                logger.info(f"Data file name: {filename}")
+
+                # Load the file object from Django storage backend, save it to local /tmp dir
+                data_file_bytes = default_storage.open(filename, mode='rb').read()
+
+                with open(f"{temp_dir}/data.zip", "wb") as f:
+                    f.write(data_file_bytes)
+                    data_zip_bytes = io.BytesIO(data_file_bytes)
+
+                data_zip_obj = zipfile.ZipFile(data_zip_bytes)
+                logger.info("File loaded")
+
+        else:
+            logger.info("No script data file... ")
+
+        logger.info(f"Loaded data file: {data_zip_obj}")
+
+        ########################################### END DATA FILE LOADING ##############################################
+
         # call the script with the appropriate Gremlin / Django objects already loaded (don't want the user
         # interacting with underlying Django infrastructure.
         finished, message, data, fileBytes, file_ext, docPackaging = createFunctionFromString(script.script)(*args,
@@ -1022,9 +1293,11 @@ def applyPythonScriptToJob(*args, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
                                                                                                              nodeInputs=node_inputs,
                                                                                                              jobInputs=job_inputs,
                                                                                                              previousData=transformed_data,
+                                                                                                             dataZip=data_zip_obj,
                                                                                                              **kwargs)
 
         logger.info("Finished script")
+
 
         # pull in data from preceding step node results to start building the output data for this node.
         dataObj = {
@@ -1164,9 +1437,9 @@ def chordfinisher(previousMessage, *args, **kwargs):
 def createSharedResultForParallelExecution(*args, jobId=-1, stepId=-1, root=False, **kwargs):
 
     try:
-        jobLogger = JobLogger(jobId=jobId, name="runJob")
         temp = io.StringIO()
         job = Job.objects.get(id=jobId)
+        jobLogger = JobLogger(jobId=jobId, name="runJob")
         node = PipelineNode.objects.get(id=stepId)
 
         temp.write("createSharedResultForParallelExecution - jobId {0} and stepId {1}".format(jobId, stepId))
@@ -1182,6 +1455,7 @@ def createSharedResultForParallelExecution(*args, jobId=-1, stepId=-1, root=Fals
             name = "Pipeline: {0} | Step #{1}".format(job.pipeline.name, node.script.name),
 
         node_result = Result.objects.create(
+            owner=job.owner,
             name=name,
             job=job,
             pipeline_node=node,
@@ -1246,10 +1520,13 @@ def createSharedResultForParallelExecution(*args, jobId=-1, stepId=-1, root=Fals
 # and pass them along to the next step
 @celery_app.task(base=FaultTolerantTask)
 def resultsMerge(*args, jobId=-1, stepId=-1, **kwargs):
+
     try:
 
         logger.info("Start resultsMerge...")
         logger.info(f"Results merge inputs: {args}")
+        logger.info(f"Results merge inputs element 0: {args[0]}")
+        logger.info(f"Results merge inputs element 0: {args[0][0]}")
 
         # Get loggers
         jobLogger = JobLogger(jobId=jobId, name="resultsMerge")
@@ -1449,7 +1726,7 @@ def installPackages(*args, scriptId=-1, **kwargs):
 
 
 @celery_app.task(base=FaultTolerantTask, name="Import Edges from YAML")
-def importEdgesFromYAML(*args, edges=[], parentPipelineId=-1, **kwargs):
+def importEdgesFromYAML(*args, edges=[], parentPipelineId=-1, ownerId=-1, **kwargs):
     return_data = {}
 
     try:
@@ -1464,6 +1741,7 @@ def importEdgesFromYAML(*args, edges=[], parentPipelineId=-1, **kwargs):
                 print(edge)
 
                 new_edge = Edge.objects.create(
+                    owner_id=ownerId,
                     label=edge['label'],
                     start_node_id=return_data['node_lookup'][f"{edge['start_node']}"],
                     end_node_id=return_data['node_lookup'][f"{edge['end_node']}"],
@@ -1487,7 +1765,7 @@ def importEdgesFromYAML(*args, edges=[], parentPipelineId=-1, **kwargs):
 
 # Expects args[0] to be script_lookup
 @celery_app.task(base=FaultTolerantTask, name="Import Nodes from YAML")
-def importNodesFromYAML(*args, nodes=[], parentPipelineId=-1, **kwargs):
+def importNodesFromYAML(*args, nodes=[], parentPipelineId=-1, ownerId=-1, **kwargs):
     node_lookup = {}
     return_data = {}  # pass along the script_lookup and node_lookup
 
@@ -1503,6 +1781,7 @@ def importNodesFromYAML(*args, nodes=[], parentPipelineId=-1, **kwargs):
                 print(node)
 
                 new_node = PipelineNode.objects.create(
+                    owner_id=ownerId,
                     name=node['name'],
                     script_id=return_data['script_lookup'][f"{node['script']}"] if node['script'] else None,
                     type=node['type'],
@@ -1557,7 +1836,7 @@ def linkRootNodeFromYAML(*args, pipeline_data=None, parentPipelineId=-1, **kwarg
 
 
 @celery_app.task(base=FaultTolerantTask, name="Import Script from YAML")
-def importScriptsFromYAML(*Args, scripts=[], **kwargs):
+def importScriptsFromYAML(*Args, scripts=[], ownerId=-1, **kwargs):
     return_data = {}
     return_data['error'] = None
     script_lookup = {}
@@ -1568,6 +1847,7 @@ def importScriptsFromYAML(*Args, scripts=[], **kwargs):
             print(script)
 
             new_script = PythonScript.objects.create(
+                owner_id=ownerId,
                 locked=True,
                 name=script['name'],
                 human_name=script['human_name'],
@@ -1828,6 +2108,7 @@ def packageJobResults(*args, jobId=-1, **kwargs):
         jobLogger.info("Job outputs saved.")
 
         result = Result.objects.create(
+            owner=job.owner,
             name="Job {0}".format(jobId),
             job=job,
             type='JOB',

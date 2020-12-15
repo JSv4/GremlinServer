@@ -1,7 +1,11 @@
 from django.contrib import admin
 
 from .models import Document, Job, Result, PythonScript, Pipeline, PipelineNode, \
-	TaskLogEntry, JobLogEntry, Edge
+	TaskLogEntry, JobLogEntry, Edge, ScriptDataFile
+
+@admin.register(ScriptDataFile)
+class DataFileAdmin(admin.ModelAdmin):
+	list_display = ['creation_time', 'modified', 'pk']
 
 @admin.register(Document)
 class DocumentAdmin(admin.ModelAdmin):

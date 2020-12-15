@@ -11,7 +11,7 @@ def addTaskLog(resultId=-1, msg="", loggerName="Task"):
 			'logger_name': loggerName,
 			'level': "INFO",
 			'msg': msg,
-			'result': Result.objects.get(id=resultId)
+			'result': Result.objects.get(id=resultId),
 		}
 		TaskLogEntry.objects.create(**kwargs)
 	except:
@@ -26,7 +26,7 @@ def addJobLog(jobId=-1, msg="", loggerName="Job"):
 			'logger_name': loggerName,
 			'level': "INFO",
 			'msg': msg,
-			'result': Job.objects.get(id=jobId)
+			'result': Job.objects.get(id=jobId),
 		}
 		JobLogEntry.objects.create(**kwargs)
 
@@ -56,7 +56,7 @@ class TaskDatabaseLogHandler(logging.Handler):
 				'level': record.levelno,
 				'msg': msg,
 				'trace': trace,
-				'result': Result.objects.get(id=record.resultId)
+				'result': Result.objects.get(id=record.resultId),
 			}
 
 			TaskLogEntry.objects.create(**kwargs)
@@ -79,12 +79,14 @@ class TaskDatabaseLogHandler(logging.Handler):
 		else:
 			return fmt.format(record)
 
+
 class JobDatabaseLogHandler(logging.Handler):
 	def emit(self, record, **kwargs):
 
 		if hasattr(record, "jobId"):
 
 			from .models import JobLogEntry, Job
+			from gremlin_gplv3.users.models import User
 
 			trace = None
 
@@ -101,7 +103,7 @@ class JobDatabaseLogHandler(logging.Handler):
 				'level': record.levelno,
 				'msg': msg,
 				'trace': trace,
-				'job': Job.objects.get(id=record.jobId)
+				'job': Job.objects.get(id=record.jobId),
 			}
 
 			JobLogEntry.objects.create(**kwargs)
