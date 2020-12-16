@@ -1,9 +1,11 @@
 # Python Modules
 import logging
+import tempfile
 import mimetypes
 import os, io, zipfile, sys
 from zipfile import ZipFile
 import json
+import shutil
 from datetime import datetime
 
 # YAML Stuff
@@ -13,6 +15,9 @@ from ruamel.yaml import YAML
 from django.http.response import HttpResponse
 from django.db.models import Count, Prefetch
 from django.http import FileResponse, JsonResponse
+from django.conf import settings
+from django.core.files.storage import default_storage
+from django.core.files.base import ContentFile
 
 # Django Rest Framework Stuff
 from rest_framework import status
@@ -31,7 +36,8 @@ from rest_framework.schemas.openapi import AutoSchema
 from Jobs.ImportExportUtils import exportScriptYAMLObj, exportPipelineNodeToYAMLObj, \
     exportPipelineEdgeToYAMLObj, exportPipelineToYAMLObj, importPipelineFromYAML
 from Jobs.tasks.task_helpers import transformStepInputs
-from .models import Document, Job, Result, PythonScript, PipelineNode, Pipeline, TaskLogEntry, JobLogEntry, Edge
+from .models import Document, Job, Result, PythonScript, PipelineNode, Pipeline, TaskLogEntry, JobLogEntry, Edge, \
+    ScriptDataFile
 from .paginations import MediumResultsSetPagination, SmallResultsSetPagination
 from .serializers import DocumentSerializer, JobSerializer, ResultSummarySerializer, PythonScriptSerializer, \
     LogSerializer, ResultSerializer, PythonScriptSummarySerializer, PipelineSerializer, ProjectSerializer, \
@@ -635,14 +641,54 @@ class PythonScriptViewSet(viewsets.ModelViewSet):
         try:
 
             script = PythonScript.objects.get(id=pk)
+
             outputBytes = io.BytesIO()
             zipFile = ZipFile(outputBytes, mode='w', compression=zipfile.ZIP_DEFLATED)
 
+            if script.data_file and script.data_file.data_file:
+
+                try:
+                    # Check storage type so we load proper format
+                    usingS3 = (
+                            settings.DEFAULT_FILE_STORAGE == "gremlin_gplv3.utils.storages.MediaRootS3Boto3Storage")
+
+                    # THe precise field with the valid filename / path depends on the storage adapter, so handle accordingly
+                    if usingS3:
+                        filename = script.data_file.data_file.name
+
+                    else:
+                        filename = script.data_file.data_file.path
+
+                    # Load the file object from Django storage backend, save it to local /tmp dir
+                    data_file_bytes = default_storage.open(filename, mode='rb')
+                    print(f"File loaded from DB: {filename}")
+
+                    serverZip = zipfile.ZipFile(data_file_bytes)
+
+                    print(f"Zip obj loaded from bytes {serverZip}")
+
+                    with tempfile.TemporaryDirectory() as tmpdirname:
+                        print(f"Create {tmpdirname} to extract all to")
+                        serverZip.extractall(tmpdirname)
+                        print("Extract complete")
+
+                        for root, _, filenames in os.walk(tmpdirname):
+                            for root_name in filenames:
+                                print(f"Handle zip of {root_name}")
+                                name = os.path.join(root, root_name)
+                                name = os.path.normpath(name)
+                                zipFile.write(name, f'/data/{root_name}')
+
+                    serverZip.close()
+
+                except Exception as e:
+                    print(f"Error trying to export zip: {e}")
+
             # write the logs if they exist
             if script.setup_log:
-                zipFile.writestr(f"./logs/setupLog.log", script.setup_log)
+                zipFile.writestr(f"/logs/setupLog.log", script.setup_log)
             if script.installer_log:
-                zipFile.writestr(f"./logs/pipLog.log", script.installer_log)
+                zipFile.writestr(f"/logs/pipLog.log", script.installer_log)
 
             # write the config files if they exist
             config = {}
@@ -675,20 +721,20 @@ class PythonScriptViewSet(viewsets.ModelViewSet):
 
             # if the config object is not empty... write to a config.json file
             if config is not {}:
-                zipFile.writestr(f"./config.json", json.dumps(config))
+                zipFile.writestr(f"/config.json", json.dumps(config))
 
             # write the list of python packages as a pip file
             if script.required_packages:
-                zipFile.writestr(f"./setup/requirements.txt", script.required_packages)
+                zipFile.writestr(f"/setup/requirements.txt", script.required_packages)
 
             # write the setup script as a .sh file (probably not quite right)
             if script.setup_script:
-                zipFile.writestr(f"./setup/install.sh", script.setup_script)
+                zipFile.writestr(f"/setup/install.sh", script.setup_script)
 
             # write the script as a package
             if script.script:
-                zipFile.writestr(f"./script/script.py", script.script)
-                zipFile.writestr(f"./script/__init__.py", "EXPORTED BY GREMLIN")
+                zipFile.writestr(f"/script/script.py", script.script)
+                zipFile.writestr(f"/script/__init__.py", "EXPORTED BY GREMLIN")
 
             # Close the zip archive
             zipFile.close()
@@ -754,6 +800,7 @@ class UploadScriptViewSet(APIView):
             f = request.FILES['file'].open().read()
 
             with ZipFile(request.data['file'].open(), mode='r') as importZip:
+
                 print("File successfully uploaded.")
                 script = ""
                 name = ""
@@ -764,6 +811,7 @@ class UploadScriptViewSet(APIView):
                 schema = ""
                 requirements = ""
                 setup_script = ""
+                db_data_obj = None
 
                 print(f"Received zip file contents: {importZip.namelist()}")
 
@@ -805,25 +853,63 @@ class UploadScriptViewSet(APIView):
                         setup_script = setupFile.read().decode('UTF-8')
                 print(f"Importing setup_script: {setup_script}")
 
+                # look to see if there's anything in the data directory and, if so, zip and add to databse
+                hasFiles = False
+                dataZipBytes = io.BytesIO()
+                with zipfile.ZipFile(dataZipBytes, mode='w', compression=zipfile.ZIP_DEFLATED) as dataZipObj:
+                    for filename in [name for name in importZip.namelist() if name.startswith('./data')]:
+                        print(f"Handle filename {filename}")
+                        hasFiles = True
+                        dataZipObj.writestr(os.path.basename(filename), importZip.open(filename).read())
+
+                if hasFiles:
+
+                    print("Import has data files...")
+
+                    with ContentFile(dataZipBytes.getvalue()) as zipFile:
+
+                        db_data_obj = ScriptDataFile.objects.create()
+                        db_data_obj.data_file.save("data.zip", zipFile)
+                        db_data_obj.save()
+
+                else:
+                    print("No data dir")
+
                 # We do NOT import logs in case you're looking for those imports... log are exported from live scripts
                 # but you'll get a new setup log when you import a new script.
 
-                # Create a script
-                script = PythonScript.objects.create(
-                    owner=request.user,
-                    script=script,
-                    name=name,
-                    human_name=name.replace(" ", "_"),
-                    description=description,
-                    supported_file_types=supported_file_types,
-                    env_variables=env_variables,
-                    schema=schema,
-                    required_packages=requirements,
-                    setup_script=setup_script,
-                    type=type,
-                )
-                script.save()
-
+                # Create a script - if there is a db_data_obj, add relationship to new Script Model
+                if db_data_obj:
+                    script = PythonScript.objects.create(
+                        owner=request.user,
+                        script=script,
+                        name=name,
+                        human_name=name.replace(" ", "_"),
+                        description=description,
+                        supported_file_types=supported_file_types,
+                        env_variables=env_variables,
+                        schema=schema,
+                        required_packages=requirements,
+                        setup_script=setup_script,
+                        type=type,
+                        data_file=db_data_obj
+                    )
+                    script.save()
+                else:
+                    script = PythonScript.objects.create(
+                        owner=request.user,
+                        script=script,
+                        name=name,
+                        human_name=name.replace(" ", "_"),
+                        description=description,
+                        supported_file_types=supported_file_types,
+                        env_variables=env_variables,
+                        schema=schema,
+                        required_packages=requirements,
+                        setup_script=setup_script,
+                        type=type,
+                    )
+                    script.save()
                 print("Script imported and saved.")
 
                 serializer = PythonScriptSerializer(script)
@@ -932,6 +1018,7 @@ class PipelineViewSet(viewsets.ModelViewSet):
             yaml = YAML()
             yaml.preserve_quotes = False
             yaml.dump(exportPipelineToYAMLObj(pk), myYaml)
+
             response = HttpResponse(myYaml.getvalue(), content_type='text/plain',
                                     status=status.HTTP_200_OK)
             response['Content-Disposition'] = 'attachment; filename={0}'.format(filename)

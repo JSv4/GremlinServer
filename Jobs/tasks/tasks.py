@@ -997,7 +997,7 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, nodeId=-1, scriptId=-1,
                 "./step_results/{0}/{1}/{2}-{3}.{4}".format(jobId, nodeId, doc.id, name, file_ext),
                 file_data)
 
-        result_data = None #Change to {}
+        result_data = {}
         if data: result_data = copy.deepcopy(data)
 
         logger.info("Store results in doc result.")
@@ -1526,7 +1526,8 @@ def resultsMerge(*args, jobId=-1, stepId=-1, **kwargs):
         logger.info("Start resultsMerge...")
         logger.info(f"Results merge inputs: {args}")
         logger.info(f"Results merge inputs element 0: {args[0]}")
-        logger.info(f"Results merge inputs element 0: {args[0][0]}")
+
+        logger.info(f"resultsMerger has previous job succeeded: {jobSucceeded(args[0])}")
 
         # Get loggers
         jobLogger = JobLogger(jobId=jobId, name="resultsMerge")
@@ -1534,20 +1535,20 @@ def resultsMerge(*args, jobId=-1, stepId=-1, **kwargs):
 
         jobLogger.info("Results merge for stepId {0} of jobId {1}".format(stepId, jobId))
 
-        if len(args) > 0 and not jobSucceeded(args[0]):
-            jobLogger.info(
-                f"resultsMerge(jobId={jobId}, stepId={stepId}) - A preceding job has failed. Received this message: {args[0]}")
-            return args[0]
-
         # Setup control variables
         error = False
+
+        if len(args) > 0 and not jobSucceeded(args[0]):
+            message = f"resultsMerge(jobId={jobId}, stepId={stepId}) - A preceding job has failed. Received this message: {args[0]}"
+            jobLogger.info(message)
+            return args[0]
 
         # Default return message code
         returnMessage = JOB_FAILED_DID_NOT_FINISH
 
         logger.info("######### Results Merge At End of Parallel Step:")
 
-        for arg in args:
+        for arg in args[0]:
             mergeLog.write(arg)
 
         job = Job.objects.get(id=jobId)
@@ -2103,7 +2104,6 @@ def packageJobResults(*args, jobId=-1, **kwargs):
 
         zipFile = ContentFile(zipBytes.getvalue())
 
-        # Save the resulting job data. TODO - THIS SEEMS WRONG HOW THIS IS HANDLED.
         jobLogger.info("Stringify job outputs for saving.")
         jobLogger.info("Job outputs saved.")
 

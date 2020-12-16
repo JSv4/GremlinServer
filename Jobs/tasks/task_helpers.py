@@ -16,6 +16,7 @@ import requests
 import re
 import types
 import textwrap
+from functools import reduce
 
 result_object_template = {
     'node': {
@@ -70,13 +71,6 @@ class ScriptLogger:
 
         except Exception as e:
             logger.error("Error trying to store user script logs: {0}".format(e))
-
-
-# Gremlin result string is always [RESULT CODE] - [Custom String]. So if there is a JOB_SUCCESS STRING... it will be
-# at the beginning of the string.
-def isSuccessMessage(message):
-    end = len(JOB_SUCCESS)
-    return message[0:end] == JOB_SUCCESS
 
 
 # Can be used to combine arrays but only add unique items from addArray to targetArray.
@@ -335,13 +329,19 @@ def buildScriptInput(pipeline_node, job, script):
 
     return {}
 
+# Gremlin result string is always [RESULT CODE] - [Custom String]. So if there is a JOB_SUCCESS STRING... it will be
+# at the beginning of the string.
+def isSuccessMessage(message):
+    end = len(JOB_SUCCESS)
+    return message[0:end] == JOB_SUCCESS
+
 
 # for jobs that branch (run in parallel), you get back an array of their return message, so you need to test for
 # an array of success messages in these cases. If there is a failure amongst a group a successes, currently,
 # entire execution is considered a failure.
 def jobSucceeded(previousMessagesList):
     if isinstance(previousMessagesList, list):
-        return filter(isSuccessMessage, previousMessagesList)
+        return reduce(lambda x, y: x and y, [isSuccessMessage(x) for x in previousMessagesList])
     else:
         return previousMessagesList == JOB_SUCCESS
 
