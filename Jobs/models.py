@@ -1,6 +1,4 @@
-import logging, os, operator
-
-import uuid
+import logging, os, uuid
 from django.db import models
 from django import utils
 from django.utils import timezone
@@ -106,6 +104,57 @@ class JobLogEntry(models.Model):
         verbose_name_plural = verbose_name = 'Job Log Entries'
 
 
+class UserNotification(models.Model):
+
+    # Job Type Choices
+    SCRIPT_EXPORT = "SCRIPT_EXPORT"
+    SCRIPT_IMPORT = 'SCRIPT_IMPORT'
+    PIPELINE_EXPORT = 'PIPELINE_EXPORT'
+    PIPELINE_IMPORT = 'PIPELINE_IMPORT'
+    NOTIFICATION = 'NOTIFICATION'
+
+    NOTIFICATION_TYPE = [
+        (NOTIFICATION, _('Notice from system.')),
+        (SCRIPT_EXPORT, _('Export script to zip file.')),
+        (SCRIPT_IMPORT, _('Import script from zip file.')),
+        (PIPELINE_EXPORT, _('Export pipeline to zip file.')),
+        (PIPELINE_IMPORT, _('Import pipeline from zip file.')),
+    ]
+
+    # pretty self-explanatory... whill this be a run accross all docs in paralle or serial (some jobs are hard to parallelize)
+    type = models.CharField(
+        max_length=128,
+        blank=False,
+        null=False,
+        choices=NOTIFICATION_TYPE,
+        default=NOTIFICATION,
+    )
+
+    # Who should the notification be shown for?
+    owner = models.ForeignKey(
+        get_user_model(),
+        on_delete=models.CASCADE,
+        default=1
+    )
+
+    # Data variables
+    message = models.TextField("Message", default="", blank=False)
+    data_file = models.FileField("Notification Data", upload_to='data/data_files/', blank=True, null=True)
+
+    # Timing variables
+    created = models.DateTimeField("Job Creation Date and Time", default=utils.timezone.now)
+    modified = models.DateTimeField(default=timezone.now, blank=True)
+
+    # Override save to update modified on save
+    def save(self, *args, **kwargs):
+
+        """ On save, update timestamps """
+        if not self.uuid:
+            self.created = timezone.now()
+        self.modified = timezone.now()
+
+        return super(UserNotification, self).save(*args, **kwargs)
+
 class ScriptDataFile(models.Model):
 
     uuid = models.UUIDField(
@@ -115,9 +164,13 @@ class ScriptDataFile(models.Model):
 
     data_file = models.FileField("Script Data File", upload_to='data/data_files/', blank=True, null=True)
 
+    # Metadata
+    zip_contents = models.TextField("File contents", default='', blank=True)
+
     # Timing variables
-    creation_time = models.DateTimeField("Job Creation Date and Time", default=utils.timezone.now)
+    created = models.DateTimeField("Job Creation Date and Time", default=utils.timezone.now)
     modified = models.DateTimeField(default=timezone.now, blank=True)
+
 
     # Override save to update modified on save
     def save(self, *args, **kwargs):
@@ -125,6 +178,7 @@ class ScriptDataFile(models.Model):
         if not self.uuid:
             self.created = timezone.now()
         self.modified = timezone.now()
+
         return super(ScriptDataFile, self).save(*args, **kwargs)
 
 
@@ -274,7 +328,7 @@ class Job(models.Model):
     name = models.CharField(max_length=512, default="Job Name", blank=False)
 
     # Timing variables
-    creation_time = models.DateTimeField("Job Creation Date and Time", default=utils.timezone.now)
+    created = models.DateTimeField("Job Creation Date and Time", default=utils.timezone.now)
     modified = models.DateTimeField(default=timezone.now, blank=True)
 
     owner = models.ForeignKey(

@@ -11,7 +11,6 @@ import pytz
 from pathlib import Path
 from zipfile import ZipFile
 from django.core.files.base import ContentFile
-from django.db import connection
 from config import celery_app
 from celery import chain, group, chord
 from celery.signals import celeryd_after_setup
@@ -25,7 +24,7 @@ from Jobs.models import Job, Document, PipelineNode, Result, PythonScript, \
                         Edge, Pipeline, blank_state
 from Jobs.tasks.task_helpers import exec_with_return, returnScriptMethod, buildScriptInput, \
     transformStepInputs, createFunctionFromString, buildNodePipelineRecursively, getPrecedingResults, \
-    stopJob, jobSucceeded, getPrecedingNodesForNode
+    stopJob, jobSucceeded, getPrecedingNodesForNode, FaultTolerantTask
 from Jobs.tasks.taskLoggers import JobLogger, TaskLogger
 from gremlin_gplv3.utils.errors import PipelineError, PrecedingNodeError, JobAlreadyFinishedError, \
     FileNotSupportedError, UserScriptError
@@ -133,17 +132,6 @@ def setup_direct_queue(sender, instance, **kwargs):
     except Exception as e:
         logging.error(f"Error setting up celery worker on celeryd_init.\nSender:{sender}.\n"
                       f"Instance:\n {instance} \nError: \n{e}")
-
-
-class FaultTolerantTask(celery.Task):
-    """ Implements after return hook to close the invalid connection.
-    This way, django is forced to serve a new connection for the next
-    task.
-    """
-    abstract = True
-
-    def after_return(self, *args, **kwargs):
-        connection.close()
 
 
 @celery_app.task(base=FaultTolerantTask, name="Run Script Package Installer")

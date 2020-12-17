@@ -5,7 +5,7 @@ from .models import Document, Job, Result, PythonScript, Pipeline, PipelineNode,
 
 @admin.register(ScriptDataFile)
 class DataFileAdmin(admin.ModelAdmin):
-	list_display = ['creation_time', 'modified', 'pk']
+	list_display = ['created', 'modified', 'pk']
 
 @admin.register(Document)
 class DocumentAdmin(admin.ModelAdmin):

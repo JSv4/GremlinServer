@@ -677,7 +677,8 @@ class PythonScriptViewSet(viewsets.ModelViewSet):
                                 print(f"Handle zip of {root_name}")
                                 name = os.path.join(root, root_name)
                                 name = os.path.normpath(name)
-                                zipFile.write(name, f'/data/{root_name}')
+                                with open(name, mode='rb') as extracted_file:
+                                    zipFile.writestr(f'/data/{root_name}', extracted_file.read())
 
                     serverZip.close()
 
@@ -802,33 +803,29 @@ class UploadScriptViewSet(APIView):
             with ZipFile(request.data['file'].open(), mode='r') as importZip:
 
                 print("File successfully uploaded.")
-                script = ""
-                name = ""
-                type = ""
-                description = ""
-                supported_file_types = ""
-                env_variables = ""
                 schema = ""
                 requirements = ""
                 setup_script = ""
                 db_data_obj = None
 
                 print(f"Received zip file contents: {importZip.namelist()}")
+                print(f"File list: {importZip.filelist}")
+                print(f"Info list: {importZip.infolist()}")
 
-                if not "./script/script.py" in importZip.namelist():
-                    print("No script @ ./script/script.py")
+                if not "/script/script.py" in importZip.namelist():
+                    print("No script @/script/script.py")
                     raise ParseError("No /script/script.py")
                 else:
-                    print("Found script @ ./script/script.py")
-                    with importZip.open("./script/script.py") as myfile:
+                    print("Found script @ /script/script.py")
+                    with importZip.open("/script/script.py") as myfile:
                         script = myfile.read().decode('UTF-8')
                 print(f"Loaded script: {script}")
 
-                if not "./config.json" in importZip.namelist():
+                if not "/config.json" in importZip.namelist():
                     print("No config file @ ./config.json")
-                    raise ParseError("No ./config.json config file")
+                    raise ParseError("No /config.json config file")
                 else:
-                    with importZip.open("./config.json") as configFile:
+                    with importZip.open("/config.json") as configFile:
 
                         config_text = configFile.read().decode('UTF-8')
                         print(f"Loaded config file @ ./config.json: {config_text}")
@@ -841,26 +838,28 @@ class UploadScriptViewSet(APIView):
 
                 print(f"Parsed config file = {config}")
 
-                if "./setup/requirements.txt" in importZip.namelist():
-                    print("Detected requirements file @ ./setup/requirements.txt")
-                    with importZip.open("./setup/requirements.txt") as requirementsFile:
+                if "/setup/requirements.txt" in importZip.namelist():
+                    print("Detected requirements file @ /setup/requirements.txt")
+                    with importZip.open("/setup/requirements.txt") as requirementsFile:
                         requirements = requirementsFile.read().decode('UTF-8')
                 print(f"Requirements file extracted: {requirements}")
 
-                if "./setup/install.sh" in importZip.namelist():
+                if "/setup/install.sh" in importZip.namelist():
                     print("Detected install commands @ ./setup/install.sh")
-                    with importZip.open("./setup/install.sh") as setupFile:
+                    with importZip.open("/setup/install.sh") as setupFile:
                         setup_script = setupFile.read().decode('UTF-8')
                 print(f"Importing setup_script: {setup_script}")
 
                 # look to see if there's anything in the data directory and, if so, zip and add to databse
                 hasFiles = False
+                dataContents = ""
                 dataZipBytes = io.BytesIO()
                 with zipfile.ZipFile(dataZipBytes, mode='w', compression=zipfile.ZIP_DEFLATED) as dataZipObj:
-                    for filename in [name for name in importZip.namelist() if name.startswith('./data')]:
+                    for filename in [name for name in importZip.namelist() if name.startswith('/data')]:
                         print(f"Handle filename {filename}")
                         hasFiles = True
                         dataZipObj.writestr(os.path.basename(filename), importZip.open(filename).read())
+                        dataContents = dataContents + f"\n{filename}"
 
                 if hasFiles:
 
@@ -868,7 +867,7 @@ class UploadScriptViewSet(APIView):
 
                     with ContentFile(dataZipBytes.getvalue()) as zipFile:
 
-                        db_data_obj = ScriptDataFile.objects.create()
+                        db_data_obj = ScriptDataFile.objects.create(zip_contents=f"DATA FILE MANIFEST:\n{dataContents}")
                         db_data_obj.data_file.save("data.zip", zipFile)
                         db_data_obj.save()
 

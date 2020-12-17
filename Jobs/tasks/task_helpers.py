@@ -1,6 +1,7 @@
 import io
-import logging
+import celery
 
+from django.db import connection
 from django.conf import settings
 from django.core.files.storage import default_storage
 
@@ -335,6 +336,16 @@ def isSuccessMessage(message):
     end = len(JOB_SUCCESS)
     return message[0:end] == JOB_SUCCESS
 
+
+class FaultTolerantTask(celery.Task):
+    """ Implements after return hook to close the invalid connection.
+    This way, django is forced to serve a new connection for the next
+    task.
+    """
+    abstract = True
+
+    def after_return(self, *args, **kwargs):
+        connection.close()
 
 # for jobs that branch (run in parallel), you get back an array of their return message, so you need to test for
 # an array of success messages in these cases. If there is a failure amongst a group a successes, currently,
