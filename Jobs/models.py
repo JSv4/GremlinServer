@@ -1,7 +1,9 @@
-import logging, os, uuid
+import logging, os, uuid, zipfile
 from django.db import models
 from django import utils
 from django.utils import timezone
+from django.conf import settings
+from django.core.files.storage import default_storage
 from django.contrib.auth import get_user_model
 from django.utils.translation import ugettext_lazy as _
 from .forms import MyJSONField

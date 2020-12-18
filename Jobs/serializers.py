@@ -1,5 +1,5 @@
 from .models import Document, Job, Result, PythonScript, PipelineNode, \
-    Pipeline, TaskLogEntry, JobLogEntry, Edge
+    Pipeline, TaskLogEntry, JobLogEntry, Edge, ScriptDataFile
 from rest_framework import serializers
 
 # This is only used for DRF to request fields necessary to create Docs, parent jobs and start job all in one shot
@@ -41,6 +41,18 @@ class ProjectSerializer(serializers.Serializer):
         return job
 
 ########################################################################################################################
+### PYTHON SCRIPT DATA FILE SERIALIZER
+########################################################################################################################
+
+class ScriptDataFileSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = ScriptDataFile
+
+        fields = ["uuid", "data_file", "zip_contents", "created", "modified"]
+        read_only_fields = ["uuid", "created", "modified", "zip_contents"]
+
+########################################################################################################################
 ### PYTHON SCRIPT SERIALIZERS
 ########################################################################################################################
 
@@ -49,6 +61,7 @@ class ProjectSerializer(serializers.Serializer):
 class PythonScriptSerializer(serializers.ModelSerializer):
 
     owner = serializers.ReadOnlyField(source='owner.username')
+    data_file = ScriptDataFileSerializer()
     installing = serializers.SerializerMethodField()
 
     class Meta:
@@ -56,6 +69,7 @@ class PythonScriptSerializer(serializers.ModelSerializer):
 
         fields = [
             'id',
+            'data_file',
             'owner',
             'name',
             'human_name',
@@ -82,11 +96,13 @@ class PythonScriptSerializer(serializers.ModelSerializer):
     def installing(self, obj):
         return self.installing()
 
+
 class PythonScriptSummarySerializer_READ_ONLY(serializers.ModelSerializer):
 
     owner = serializers.HiddenField(
         default=serializers.CurrentUserDefault()
     )
+    data_file = serializers.PrimaryKeyRelatedField(many=False, queryset=ScriptDataFile.objects.all())
     installing = serializers.SerializerMethodField()
 
     class Meta:
@@ -102,7 +118,8 @@ class PythonScriptSummarySerializer_READ_ONLY(serializers.ModelSerializer):
             'mode',
             'locked',
             'installing',
-            'owner'
+            'owner',
+            'data_file'
         ]
         read_only_fields = [
             'id',
@@ -125,6 +142,7 @@ class PythonScriptSummarySerializer(serializers.ModelSerializer):
     owner = serializers.HiddenField(
         default=serializers.CurrentUserDefault()
     )
+    data_file = ScriptDataFileSerializer()
     installing = serializers.SerializerMethodField()
 
     class Meta:
@@ -140,7 +158,8 @@ class PythonScriptSummarySerializer(serializers.ModelSerializer):
             'mode',
             'locked',
             'installing',
-            'owner'
+            'owner',
+            'data_file'
         ]
         read_only_fields = ['id', 'owner', 'locked', 'installing']
 

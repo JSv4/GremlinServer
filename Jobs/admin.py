@@ -19,7 +19,7 @@ class ResultAdmin(admin.ModelAdmin):
 
 @admin.register(Job)
 class JobAdmin(admin.ModelAdmin):
-	list_display = ['name','queued','started', 'error', 'finished','status', 'creation_time']
+	list_display = ['name','queued','started', 'error', 'finished','status', 'created']
 	search_fields = ['name']
 
 @admin.register(PipelineNode)

@@ -4,7 +4,7 @@ from rest_framework.routers import DefaultRouter
 from Jobs.views import JobViewSet, DocumentViewSet, ResultsViewSet, \
     PipelineViewSet, PythonScriptViewSet, PipelineStepViewSet, LogViewSet, \
     UploadScriptViewSet, ProjectViewSet, EdgeViewSet, UploadPipelineViewSet, \
-    DashboardAggregatesViewSet
+    DashboardAggregatesViewSet, ScriptDataFileViewset
 
 from gremlin_gplv3.users.api.views import InviteUserViewSet, AllUserViewSet, \
     UserViewSet, ChangePasswordViewSet
@@ -19,6 +19,7 @@ router.register(r'Results', ResultsViewSet)
 router.register(r'PipelineSteps', PipelineStepViewSet)
 router.register(r'PipelineEdges', EdgeViewSet)
 router.register(r'PythonScripts', PythonScriptViewSet)
+router.register(f'DataFiles', ScriptDataFileViewset)
 router.register(r'Pipelines', PipelineViewSet)
 router.register(r'Logs', LogViewSet)
 

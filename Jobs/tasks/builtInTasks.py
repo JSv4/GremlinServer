@@ -1,6 +1,6 @@
 from __future__ import absolute_import, unicode_literals
 
-import celery, logging, zipfile
+import logging, zipfile, io, tempfile, os, celery, json
 
 from django.core.files.base import ContentFile
 from django.db import connection
@@ -11,12 +11,17 @@ from django.core.files.storage import default_storage
 from datetime import datetime
 
 from Jobs.tasks.task_helpers import FaultTolerantTask
-from Jobs.models import ScriptDataFile
+from Jobs.models import ScriptDataFile, PythonScript, UserNotification
 
 # Excellent django logging guidance here: https://docs.python.org/3/howto/logging-cookbook.html
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
+########################################################################################################################
+##                                                                                                                    ##
+##                              Built-in scripts to perform long-running platform tasks                               ##
+##                                                                                                                    ##
+########################################################################################################################
 
 class FaultTolerantTask(celery.Task):
     """ Implements after return hook to close the invalid connection.
@@ -29,6 +34,7 @@ class FaultTolerantTask(celery.Task):
         connection.close()
 
 
+# Task to calculate list of files in a zip.
 @celery_app.task(base=FaultTolerantTask, name="Calculate data file manifest")
 def calculateDataFileManifest(*args, script_data_file_uuid=-1, **kwargs):
 
@@ -66,14 +72,20 @@ def calculateDataFileManifest(*args, script_data_file_uuid=-1, **kwargs):
         logger.error(f"Error trying to calculate data file manifest for data file obj ID #{script_data_file_uuid}: {e}")
 
 
+# Task to zip up a script and store it in the DB. This is currently not used. Performance has been okay doing this
+# within the views... Rather than recode import/export using celery tasks - which will require an entirely new messaging
+# system on the frontend... let's see how the performance is doing this in the views for now... I suspect it will probably
+# be OK for most data but will cause issues for files that are over a couple hundred MBs. I do think this needs to be
+# addressed eventually BUT probably not a great use of time right now.
 @celery_app.task(base=FaultTolerantTask, name="Zip script for export")
-def createScriptExportZip(*args, script_id=-1, **kwargs):
+def createScriptExportZip(*args, script_id=-1, owner_id=-1, **kwargs):
+
     try:
 
-        script = PythonScript.objects.get(id=pk)
+        script = PythonScript.objects.get(id=script_id)
 
         outputBytes = io.BytesIO()
-        zipFile = ZipFile(outputBytes, mode='w', compression=zipfile.ZIP_DEFLATED)
+        zipFile = zipfile.ZipFile(outputBytes, mode='w', compression=zipfile.ZIP_DEFLATED)
 
         if script.data_file and script.data_file.data_file:
 
@@ -171,11 +183,13 @@ def createScriptExportZip(*args, script_id=-1, **kwargs):
         zipFile.close()
         outputBytes.seek(io.SEEK_SET)
 
-        filename = f"{script.name}-gremlin_export.zip"
-        response = FileResponse(outputBytes, as_attachment=True, filename=filename)
-        response['filename'] = filename
-        return response
+        notification = UserNotification.objects.create(
+            type=UserNotification.SCRIPT_EXPORT,
+            owner_id=owner_id,
+            message="Your script export has completed successfully!",
+        )
+
+        notification.data_file.save(ContentFile(outputBytes))
 
     except Exception as e:
-        return Response(e,
-                        status=status.HTTP_400_BAD_REQUEST)
+        logger.error(f"Error zipping script: {script_id}")

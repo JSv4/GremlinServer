@@ -31,6 +31,7 @@ from rest_framework.parsers import FileUploadParser, MultiPartParser
 from rest_framework.views import APIView
 from rest_framework.generics import GenericAPIView
 from rest_framework.schemas.openapi import AutoSchema
+from rest_framework.renderers import JSONRenderer
 
 # Gremlin Jobs Models and Serializers
 from Jobs.ImportExportUtils import exportScriptYAMLObj, exportPipelineNodeToYAMLObj, \
@@ -42,7 +43,7 @@ from .paginations import MediumResultsSetPagination, SmallResultsSetPagination
 from .serializers import DocumentSerializer, JobSerializer, ResultSummarySerializer, PythonScriptSerializer, \
     LogSerializer, ResultSerializer, PythonScriptSummarySerializer, PipelineSerializer, ProjectSerializer, \
     JobCreateSerializer, Full_PipelineStepSerializer, EdgeSerializer, PipelineSummarySerializer, \
-    PipelineDigraphSerializer
+    PipelineDigraphSerializer, ScriptDataFileSerializer
 from .tasks.tasks import runJobToNode
 
 # Gremlin User Models and Serializers
@@ -102,6 +103,16 @@ class PassthroughRenderer(renderers.BaseRenderer):
     def render(self, data, accepted_media_type=None, renderer_context=None):
         return data
 
+class ZipPassthroughRenderer(renderers.BaseRenderer):
+    """
+        Return data as-is. View should supply a Response.
+    """
+    media_type = ''
+    format = ''
+    permission_classes = [IsAuthenticated]
+
+    def render(self, data, accepted_media_type="application/zip", renderer_context=None):
+        return data
 
 class ListInputModelMixin(object):
 
@@ -751,6 +762,101 @@ class PythonScriptViewSet(viewsets.ModelViewSet):
                             status=status.HTTP_400_BAD_REQUEST)
 
 
+    @action(methods=['get'], detail=True, renderer_classes=(PassthroughRenderer,))
+    def delete_data(self, request, pk=None):
+
+        script = PythonScript.objects.prefetch_related('data_file').get(pk=pk)
+
+        if script.data_file:
+            data_file_ref = script.data_file
+            data_file_ref.delete()
+            script.data_file=None
+            script.save()
+
+        serializer = PythonScriptSummarySerializer(script)
+        response = JsonResponse(serializer.data)
+        return response
+
+
+    # Super useful docs on routing (unsurprisingly): https://www.django-rest-framework.org/api-guide/routers/
+    # Also, seems like there's a cleaner way to do this? Working for now but I don't like it doesn't integrate with Django filters.
+    @action(methods=['get'], detail=True, renderer_classes=(PassthroughRenderer,))
+    def download_data(self, request, pk=None):
+
+        """
+            Download the data file linked to this script.
+        """
+
+        script = PythonScript.objects.prefetch_related('data_file').get(pk=pk)
+        data_file = script.data_file
+
+        # get an open file handle:
+        file_handle = data_file.data_file.open()
+
+        # send file
+        filename, file_extension = os.path.splitext(data_file.data_file.name)
+        mimetype = mimetypes.types_map[file_extension]
+        response = FileResponse(file_handle)
+        response['Content-Length'] = data_file.data_file.size
+        response['Content-Disposition'] = 'attachment; filename="%s"' % os.path.basename(data_file.data_file.name)
+        response['Filename'] = os.path.basename(data_file.data_file.name)
+
+        return response
+
+    @action(methods=['post'], detail=True, renderer_classes=(JSONRenderer,))
+    def upload_data(self, request, pk=None):
+
+        if not request.FILES['data_file']:
+            print("Empty content!")
+            raise ParseError("Empty content")
+
+        try:
+
+            print(f"Got new data file for script ID #{pk}: {request.FILES['data_file'].name}")
+
+            script = PythonScript.objects.get(pk=pk)
+
+            manifest = ""
+            data_file_bytes = io.BytesIO(request.FILES['data_file'] .read())
+
+            print("Request file read")
+
+            importZip = zipfile.ZipFile(data_file_bytes)
+            for filename in importZip.namelist():
+                print(f"Handle import filename {filename}")
+                manifest = manifest + f"\n{filename}"
+            importZip.close()
+
+            print("Manifest built")
+
+            zip_file = ContentFile(data_file_bytes.getvalue())
+
+            # If there's already a data object associate with script, update it. Otherwise, create a new one.
+            if script.data_file:
+                db_data_obj = script.data_file
+            else:
+                db_data_obj = ScriptDataFile.objects.create(
+                    zip_contents=f"DATA FILE MANIFEST:\n{manifest}"
+                )
+
+            db_data_obj.data_file.save("data.zip", zip_file)
+            db_data_obj.save()
+
+            script.data_file = db_data_obj
+            script.save()
+
+            serializer = PythonScriptSerializer(script)
+            response = JsonResponse(serializer.data)
+            response.accepted_media_type="application/zip"
+
+            return response
+
+        except Exception as e:
+            print("Exception encountered: ")
+            print(e)
+            return Response(e,
+                            status=status.HTTP_400_BAD_REQUEST)
+
 class UploadPipelineViewSet(APIView):
     allowed_methods = ['post']
     permission_classes = [IsAuthenticated & WriteOnlyIfNotAdminOrEng]
@@ -809,8 +915,6 @@ class UploadScriptViewSet(APIView):
                 db_data_obj = None
 
                 print(f"Received zip file contents: {importZip.namelist()}")
-                print(f"File list: {importZip.filelist}")
-                print(f"Info list: {importZip.infolist()}")
 
                 if not "/script/script.py" in importZip.namelist():
                     print("No script @/script/script.py")
@@ -850,10 +954,11 @@ class UploadScriptViewSet(APIView):
                         setup_script = setupFile.read().decode('UTF-8')
                 print(f"Importing setup_script: {setup_script}")
 
-                # look to see if there's anything in the data directory and, if so, zip and add to databse
+                # look to see if there's anything in the data directory and, if so, zip and add to database
                 hasFiles = False
                 dataContents = ""
                 dataZipBytes = io.BytesIO()
+
                 with zipfile.ZipFile(dataZipBytes, mode='w', compression=zipfile.ZIP_DEFLATED) as dataZipObj:
                     for filename in [name for name in importZip.namelist() if name.startswith('/data')]:
                         print(f"Handle filename {filename}")
@@ -923,6 +1028,13 @@ class UploadScriptViewSet(APIView):
             return Response(e,
                             status=status.HTTP_400_BAD_REQUEST)
 
+class ScriptDataFileViewset(viewsets.ModelViewSet):
+
+    serializer_class =ScriptDataFileSerializer
+    queryset = ScriptDataFile.objects.all().order_by('modified')
+    filter_fields=['uuid']
+    pagination_class = SmallResultsSetPagination
+    permission_classes = [IsAuthenticated & WriteOnlyIfNotAdminOrEng]
 
 class PipelineSummaryViewSet(viewsets.ModelViewSet):
     serializer_class = PipelineSummarySerializer
