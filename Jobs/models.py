@@ -167,7 +167,7 @@ class ScriptDataFile(models.Model):
     data_file = models.FileField("Script Data File", upload_to='data/data_files/', blank=True, null=True)
 
     # Metadata
-    zip_contents = models.TextField("File contents", default='', blank=True)
+    manifest = models.TextField("File contents", default='', blank=True)
 
     # Timing variables
     created = models.DateTimeField("Job Creation Date and Time", default=utils.timezone.now)
@@ -237,7 +237,7 @@ class PythonScript(models.Model):
     script = models.TextField("Python Code", blank=True, default="")
 
     # Reference to data file zip which will be made available to the running script if it exists.
-    data_file = models.ForeignKey("ScriptDataFile", on_delete=models.SET_NULL, null=True)
+    data_file = models.ForeignKey("ScriptDataFile", on_delete=models.SET_NULL, null=True, blank=True)
 
     # the list of python packages to install (use pip requirements.txt format)
     required_packages = models.TextField("Required Python Packages", blank=True, default="")
@@ -620,7 +620,7 @@ class Result(models.Model):
     node_inputs = GremlinJSONField(default=blank_json)
 
     # File output
-    file = models.FileField("Results File", upload_to='data/results/results/', blank=True, null=True)
+    file = models.FileField("Results File", upload_to='data/results/', blank=True, null=True)
 
     # Data Outputs (OLD - TO DEPRECATE_
     output_data = models.TextField('Result Data', blank=False, default="{}")

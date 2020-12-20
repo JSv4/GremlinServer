@@ -347,12 +347,17 @@ class FaultTolerantTask(celery.Task):
     def after_return(self, *args, **kwargs):
         connection.close()
 
+
 # for jobs that branch (run in parallel), you get back an array of their return message, so you need to test for
 # an array of success messages in these cases. If there is a failure amongst a group a successes, currently,
-# entire execution is considered a failure.
+# entire execution is considered a failure. If there are no proceeding results (empty array), return True as well.
+# I went back and forth on whether this is desired but ultimately decided to let it through so you can run empty pipelines.
 def jobSucceeded(previousMessagesList):
     if isinstance(previousMessagesList, list):
-        return reduce(lambda x, y: x and y, [isSuccessMessage(x) for x in previousMessagesList])
+        if len(previousMessagesList) > 0:
+            return reduce(lambda x, y: x and y, [isSuccessMessage(x) for x in previousMessagesList])
+        else:
+            return True
     else:
         return previousMessagesList == JOB_SUCCESS
 

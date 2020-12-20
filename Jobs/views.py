@@ -41,9 +41,9 @@ from .models import Document, Job, Result, PythonScript, PipelineNode, Pipeline,
     ScriptDataFile
 from .paginations import MediumResultsSetPagination, SmallResultsSetPagination
 from .serializers import DocumentSerializer, JobSerializer, ResultSummarySerializer, PythonScriptSerializer, \
-    LogSerializer, ResultSerializer, PythonScriptSummarySerializer, PipelineSerializer, ProjectSerializer, \
-    JobCreateSerializer, Full_PipelineStepSerializer, EdgeSerializer, PipelineSummarySerializer, \
-    PipelineDigraphSerializer, ScriptDataFileSerializer
+    PythonScriptNestedDataSerializer, LogSerializer, ResultSerializer, PythonScriptSummarySerializer, \
+    PipelineSerializer, ProjectSerializer, JobCreateSerializer, Full_PipelineStepSerializer, EdgeSerializer, \
+    PipelineSummarySerializer, PipelineDigraphSerializer, ScriptDataFileSerializer
 from .tasks.tasks import runJobToNode
 
 # Gremlin User Models and Serializers
@@ -308,9 +308,9 @@ class JobViewSet(viewsets.ModelViewSet):
     def get_queryset(self, *args, **kwargs):
         # for legal engineers and lawyers, don't show them jobs or docs that don't belong to them.
         if self.request.user.role == "LEGAL_ENG" or self.request.user.role == "LAWYER":
-            return self.queryset.filter(owner=self.request.user.id).order_by('-creation_time')
+            return self.queryset.filter(owner=self.request.user.id).order_by('-created')
         else:
-            return self.queryset.order_by('-creation_time')
+            return self.queryset.order_by('-created')
 
     # Super useful docs on routing (unsurprisingly): https://www.django-rest-framework.org/api-guide/routers/
     # Also, seems like there's a cleaner way to do this? Working for now but I don't like it doesn't integrate with Django filters.
@@ -459,18 +459,18 @@ class ResultsViewSet(viewsets.ModelViewSet):
     @action(methods=['get'], detail=True, renderer_classes=(PassthroughRenderer,))
     def download(self, request, pk=None):
 
-        documentResult = Result.objects.filter(pk=pk)[0]
+        targetResult = Result.objects.filter(pk=pk)[0]
 
         # get an open file handle (I'm just using a file attached to the model for this example):
-        file_handle = documentResult.file.open()
+        file_handle = targetResult.file.open()
 
         # send file
-        filename, file_extension = os.path.splitext(documentResult.file.name)
+        filename, file_extension = os.path.splitext(targetResult.file.name)
         mimetype = mimetypes.types_map[file_extension]
         response = FileResponse(file_handle)
-        response['Content-Length'] = documentResult.file.size
-        response['Content-Disposition'] = 'attachment; filename="%s"' % os.path.basename(documentResult.file.name)
-        response['Filename'] = os.path.basename(documentResult.file.name)
+        response['Content-Length'] = targetResult.file.size
+        response['Content-Disposition'] = 'attachment; filename="%s"' % os.path.basename(targetResult.file.name)
+        response['Filename'] = os.path.basename(targetResult.file.name)
 
         return response
 
@@ -584,10 +584,14 @@ class PythonScriptViewSet(viewsets.ModelViewSet):
     # Based on the guidance here:https://stackoverflow.com/questions/22616973/django-rest-framework-use-different-serializers-in-the-same-modelviewset
     def get_serializer_class(self):
 
-        if self.action == 'create':  # for create only, provided option to pass in script.
+        if self.action in ['list', 'delete']:
+            return PythonScriptSummarySerializer
+        elif self.action == 'retrieve':
+            # retrieve we want to use a nested serializer for data file
+            return PythonScriptNestedDataSerializer
+        else:  # for update serializers
             return PythonScriptSerializer
 
-        return PythonScriptSummarySerializer  # For list, update, delete, and all other actions
 
     # Export script as YAML
     @action(methods=['get'], detail=True)
@@ -612,7 +616,7 @@ class PythonScriptViewSet(viewsets.ModelViewSet):
     def GetDetails(self, request, pk=None):
         try:
             script = PythonScript.objects.get(id=pk)
-            serializer = PythonScriptSerializer(script)
+            serializer = PythonScriptNestedDataSerializer(script)
             return Response(serializer.data)
         except Exception as e:
             return Response(e,
@@ -824,7 +828,7 @@ class PythonScriptViewSet(viewsets.ModelViewSet):
             importZip = zipfile.ZipFile(data_file_bytes)
             for filename in importZip.namelist():
                 print(f"Handle import filename {filename}")
-                manifest = manifest + f"\n{filename}"
+                manifest = manifest + f"\n{filename}" if manifest else filename
             importZip.close()
 
             print("Manifest built")
@@ -835,10 +839,9 @@ class PythonScriptViewSet(viewsets.ModelViewSet):
             if script.data_file:
                 db_data_obj = script.data_file
             else:
-                db_data_obj = ScriptDataFile.objects.create(
-                    zip_contents=f"DATA FILE MANIFEST:\n{manifest}"
-                )
+                db_data_obj = ScriptDataFile.objects.create()
 
+            db_data_obj.manifest = manifest
             db_data_obj.data_file.save("data.zip", zip_file)
             db_data_obj.save()
 
@@ -956,7 +959,7 @@ class UploadScriptViewSet(APIView):
 
                 # look to see if there's anything in the data directory and, if so, zip and add to database
                 hasFiles = False
-                dataContents = ""
+                manifest = ""
                 dataZipBytes = io.BytesIO()
 
                 with zipfile.ZipFile(dataZipBytes, mode='w', compression=zipfile.ZIP_DEFLATED) as dataZipObj:
@@ -964,7 +967,7 @@ class UploadScriptViewSet(APIView):
                         print(f"Handle filename {filename}")
                         hasFiles = True
                         dataZipObj.writestr(os.path.basename(filename), importZip.open(filename).read())
-                        dataContents = dataContents + f"\n{filename}"
+                        manifest = manifest + f"\n{filename}" if manifest else filename
 
                 if hasFiles:
 
@@ -972,7 +975,7 @@ class UploadScriptViewSet(APIView):
 
                     with ContentFile(dataZipBytes.getvalue()) as zipFile:
 
-                        db_data_obj = ScriptDataFile.objects.create(zip_contents=f"DATA FILE MANIFEST:\n{dataContents}")
+                        db_data_obj = ScriptDataFile.objects.create(manifest=manifest)
                         db_data_obj.data_file.save("data.zip", zipFile)
                         db_data_obj.save()
 
@@ -1083,7 +1086,6 @@ class PipelineViewSet(viewsets.ModelViewSet):
             owner=request.user,
             name="TEST JOB",
             type="TEST",
-            creation_time=datetime.now(),
             pipeline=pipeline
         )
 

@@ -49,8 +49,8 @@ class ScriptDataFileSerializer(serializers.ModelSerializer):
     class Meta:
         model = ScriptDataFile
 
-        fields = ["uuid", "data_file", "zip_contents", "created", "modified"]
-        read_only_fields = ["uuid", "created", "modified", "zip_contents"]
+        fields = ["uuid", "data_file", "manifest", "created", "modified"]
+        read_only_fields = ["uuid", "created", "modified", "manifest"]
 
 ########################################################################################################################
 ### PYTHON SCRIPT SERIALIZERS
@@ -59,6 +59,46 @@ class ScriptDataFileSerializer(serializers.ModelSerializer):
 # This is the most data intensive script serializer. Actually include the script and setup install files
 # unlike the SummarySerializer
 class PythonScriptSerializer(serializers.ModelSerializer):
+
+    owner = serializers.ReadOnlyField(source='owner.username')
+    data_file = serializers.PrimaryKeyRelatedField(many=False, queryset=ScriptDataFile.objects.all(),
+                                                   required=False, allow_null=True, default=None)
+    installing = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PythonScript
+
+        fields = [
+            'id',
+            'data_file',
+            'owner',
+            'name',
+            'human_name',
+            'type',
+            'supported_file_types',
+            'json_schema',
+            'mode',
+            'script',
+            'description',
+            'required_packages',
+            'setup_script',
+            'env_variables',
+            'installer_log',
+            'setup_log',
+            'locked',
+            'installing',
+            'install_error',
+            'install_error_code'
+        ]
+
+        read_only_fields = ['id', 'setup_log', 'owner', 'locked', 'installing',
+                            'install_error', 'install_error_code']
+
+    def installing(self, obj):
+        return self.installing()
+
+
+class PythonScriptNestedDataSerializer(serializers.ModelSerializer):
 
     owner = serializers.ReadOnlyField(source='owner.username')
     data_file = ScriptDataFileSerializer()
@@ -102,7 +142,8 @@ class PythonScriptSummarySerializer_READ_ONLY(serializers.ModelSerializer):
     owner = serializers.HiddenField(
         default=serializers.CurrentUserDefault()
     )
-    data_file = serializers.PrimaryKeyRelatedField(many=False, queryset=ScriptDataFile.objects.all())
+    data_file = serializers.PrimaryKeyRelatedField(many=False, queryset=ScriptDataFile.objects.all(),
+                                                   required=False, allow_null=True, default=None)
     installing = serializers.SerializerMethodField()
 
     class Meta:
@@ -232,11 +273,11 @@ class JobCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Job
 
-        fields = ['id', 'name', 'creation_time', 'pipeline', 'queued', 'started',
+        fields = ['id', 'name', 'created', 'pipeline', 'queued', 'started',
                   'error', 'finished', 'status', 'start_time', 'stop_time', 'job_inputs', 'file',
                   'completed_tasks', 'task_count', 'type', 'owner', 'num_docs', 'notification_email']
 
-        read_only_fields = ['id', 'creation_time', 'started', 'error', 'finished',
+        read_only_fields = ['id', 'created', 'started', 'error', 'finished',
                             'status', 'start_time', 'stop_time', 'file', 'completed_tasks', 'task_count', 'type',
                             'owner', 'num_docs']
 
@@ -251,11 +292,11 @@ class JobSerializer(serializers.ModelSerializer):
     class Meta:
         model = Job
 
-        fields = ['id', 'name', 'creation_time', 'pipeline', 'queued', 'started',
+        fields = ['id', 'name', 'created', 'pipeline', 'queued', 'started',
                   'error', 'finished', 'status', 'start_time', 'stop_time', 'job_inputs', 'file',
-                  'completed_tasks','task_count', 'type', 'owner', 'num_docs', 'notification_email']
+                  'completed_tasks', 'task_count', 'type', 'owner', 'num_docs', 'notification_email']
 
-        read_only_fields = ['id', 'creation_time', 'started', 'error', 'finished',
+        read_only_fields = ['id', 'created', 'started', 'error', 'finished',
                             'status', 'start_time', 'stop_time', 'file','completed_tasks','task_count', 'type',
                             'owner', 'num_docs']
 

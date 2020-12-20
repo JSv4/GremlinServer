@@ -65,7 +65,7 @@ def calculateDataFileManifest(*args, script_data_file_uuid=-1, **kwargs):
             for filename in dataZipObj.namelist():
                 manifest = manifest + f"\n{filename}"
 
-        data_model.zip_contents=f"DATA FILE MANIFEST:\n{manifest}"
+        data_model.manifest= f"DATA FILE MANIFEST:\n{manifest}"
         data_model.save()
 
     except Exception as e:

@@ -1,6 +1,6 @@
 from __future__ import absolute_import, unicode_literals
 
-import zipfile, traceback, tempfile, subprocess, sys, codecs, os, io, json, time
+import zipfile, traceback, tempfile, subprocess, sys, codecs, os, io, json, re
 import celery
 import docx2txt
 import tika  # python wrapper for tika server
@@ -957,7 +957,7 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, nodeId=-1, scriptId=-1,
         result.save()
 
         # Run the user script but wrap in a try / except so we don't crash the pipeline if this fails
-        finished, message, data, fileBytes, file_ext = createFunctionFromString(script.script)(
+        finished, message, data, file_bytes, file_name = createFunctionFromString(script.script)(
             *args,
             docType=doc.type,
             docText=doc.rawText,
@@ -974,16 +974,14 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, nodeId=-1, scriptId=-1,
         jobLog.write(f"Finished {finished}")
         jobLog.write(f"Message {message}")
         jobLog.write(f"data {data}")
-        jobLog.write(f"file extension {file_ext} of type {type(file_ext)}")
+        jobLog.write(f"file name of {file_name} of type {type(file_name)}")
 
 
         # take file object and save to filesystem provided it is not none and plausibly could be an extension
-        if file_ext and len(file_ext) > 1:
+        if file_name and file_bytes:
             name, file_extension = os.path.splitext(doc.name)
-            file_data = ContentFile(fileBytes)
-            result.file.save(
-                "./step_results/{0}/{1}/{2}-{3}.{4}".format(jobId, nodeId, doc.id, name, file_ext),
-                file_data)
+            file_data = ContentFile(file_bytes)
+            result.file.save(f"./step_results/{jobId}/{nodeId}/{file_name}", file_data)
 
         result_data = {}
         if data: result_data = copy.deepcopy(data)
@@ -1274,7 +1272,7 @@ def applyPythonScriptToJob(*args, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
 
         # call the script with the appropriate Gremlin / Django objects already loaded (don't want the user
         # interacting with underlying Django infrastructure.
-        finished, message, data, fileBytes, file_ext, docPackaging = createFunctionFromString(script.script)(*args,
+        finished, message, data, file_bytes, file_name, doc_packaging = createFunctionFromString(script.script)(*args,
                                                                                                              job=job,
                                                                                                              step=node,
                                                                                                              logger=scriptLogger,
@@ -1321,16 +1319,16 @@ def applyPythonScriptToJob(*args, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
         nodeLog.write(message)
         logger.info(message)
 
-        message = f"File extension {file_ext} of type {type(file_ext)}"
+        message = f"File name {file_name} of type {type(file_name)}"
         nodeLog.write(message)
         logger.info(message)
 
-        message = f"Doc packaging instructions are {docPackaging}"
+        message = f"Doc packaging instructions are {doc_packaging}"
         nodeLog.write(message)
         logger.info(message)
 
         # if there is a set of doc packaging instructions, build the doc package
-        if docPackaging and isinstance(docPackaging, dict):
+        if doc_packaging and isinstance(doc_packaging, dict):
 
             packageBytes = io.BytesIO()
             packageZip = ZipFile(packageBytes, mode='w', compression=zipfile.ZIP_DEFLATED)
@@ -1338,7 +1336,7 @@ def applyPythonScriptToJob(*args, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
             # if we're using Boto S3 adapter to store docs in AWS, we need to interact with the files differently
             usingS3 = (settings.DEFAULT_FILE_STORAGE == "gremlin_gplv3.utils.storages.MediaRootS3Boto3Storage")
 
-            for returnDocId in list(docPackaging.keys()):
+            for returnDocId in list(doc_packaging.keys()):
 
                 doc = Document.objects.get(id=returnDocId)
 
@@ -1352,8 +1350,8 @@ def applyPythonScriptToJob(*args, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
                 docPath = Path(filename)
 
                 with default_storage.open(filename, mode='rb') as file:
-                    nodeLog.write(f"newChildPath root is {Path(docPackaging[returnDocId])}")
-                    newChildPath = f"{docPackaging[returnDocId]}/{docPath.name}"
+                    nodeLog.write(f"newChildPath root is {Path(doc_packaging[returnDocId])}")
+                    newChildPath = f"{doc_packaging[returnDocId]}/{docPath.name}"
                     nodeLog.write(f"newChildPath is {newChildPath}")
                     packageZip.writestr(newChildPath, file.read())
 
@@ -1370,17 +1368,9 @@ def applyPythonScriptToJob(*args, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
 
         # Otherwise, store the file object returned
         # take file object and save to filesystem provided it is not none and plausibly could be an extension
-        elif file_ext and len(file_ext) > 1:
-            file_data = ContentFile(fileBytes)
-            result.file.save("./node_results/{0}/{1}/Step {2} ({3}).{4}".format(
-                jobId,
-                nodeId,
-                node.name,
-                node.step_number + 1,
-                file_ext
-            ),
-                file_data
-            )
+        elif file_name and file_bytes:
+            file_data = ContentFile(file_bytes)
+            result.file.save(f"./node_results/{jobId}/{nodeId}/{file_name}", file_data)
 
         result.stop_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
         result.finished = True
@@ -1989,7 +1979,7 @@ def packageJobResults(*args, jobId=-1, **kwargs):
         jobLogger.info("UsingS3: {0}".format(usingS3))
 
         resultsDir = "./jobs_data/%s/" % (jobId)
-        resultFilename = "%sJob %s - Results.zip" % (resultsDir, jobId)
+        resultFilename = f"Job {jobId} - Results.zip"
 
         zipBytes = io.BytesIO()
         jobData = {}
@@ -2040,7 +2030,7 @@ def packageJobResults(*args, jobId=-1, **kwargs):
                     jobLogger.info(zip_filename)
 
                     with default_storage.open(filename, mode='rb') as file:
-                        newChildPath = "./Step {0} ({1})/{2}".format(r.pipeline_node.step_number + 1,
+                        newChildPath = "/Step {0} ({1})/{2}".format(r.pipeline_node.id,
                                                                      r.pipeline_node.name, zip_filename)
                         jobLogger.info(f"Zip file will be: {newChildPath}")
                         jobResultsZipData.writestr(newChildPath, file.read())
@@ -2068,7 +2058,7 @@ def packageJobResults(*args, jobId=-1, **kwargs):
                     # If there's output json...
                     if r.node_output_data:
                         jobLogger.info("There is step node data... write to data file")
-                        newChildPath = "./Step {0} ({1})/{2}_data.json".format(r.pipeline_node.id,
+                        newChildPath = "/Step {0} ({1})/{2}_data.json".format(r.pipeline_node.id,
                                                                                r.pipeline_node.name,
                                                                                r.pipeline_node.name)
                         jobLogger.info(f"Data file will be: {newChildPath}")
@@ -2076,7 +2066,7 @@ def packageJobResults(*args, jobId=-1, **kwargs):
 
                     # Write node states out
                     jobLogger.info("Write node end state to file")
-                    newChildPath = "./Step {0} ({1})/{2}_final_state.json".format(r.pipeline_node.id,
+                    newChildPath = "/Step {0} ({1})/{2}_final_state.json".format(r.pipeline_node.id,
                                                                                   r.pipeline_node.name,
                                                                                   r.pipeline_node.name)
                     jobLogger.info(f"Data file will be: {newChildPath}")
