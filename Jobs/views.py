@@ -35,7 +35,7 @@ from rest_framework.renderers import JSONRenderer
 
 # Gremlin Jobs Models and Serializers
 from Jobs.ImportExportUtils import exportScriptYAMLObj, exportPipelineNodeToYAMLObj, \
-    exportPipelineEdgeToYAMLObj, exportPipelineToYAMLObj, importPipelineFromYAML
+    exportPipelineEdgeToYAMLObj, exportPipelineToYAMLObj, importPipelineFromYAML, exportPipelineToZip
 from Jobs.tasks.task_helpers import transformStepInputs
 from .models import Document, Job, Result, PythonScript, PipelineNode, Pipeline, TaskLogEntry, JobLogEntry, Edge, \
     ScriptDataFile
@@ -1121,9 +1121,55 @@ class PipelineViewSet(viewsets.ModelViewSet):
             return Response(e,
                             status=status.HTTP_400_BAD_REQUEST)
 
+        # Export script as YAML
+
+    @action(methods=['get'], detail=True)
+    def ExportToZip(self, request, pk=None):
+        try:
+            pipeline = Pipeline.objects.get(pk=pk)
+            filename = f"{pipeline.name}.zip"
+            export_bytes = exportPipelineToZip(pk)
+
+            print(f"Export bytes: {type(export_bytes)}")
+
+            response = FileResponse(
+                export_bytes,
+                content_type='application/zip',
+                as_attachment=True,
+                filename=filename
+            )
+
+            return response
+
+        except Exception as e:
+            return Response(e,
+                            status=status.HTTP_400_BAD_REQUEST)
+
+
     # Export script as YAML
     @action(methods=['get'], detail=True)
     def ExportToYAML(self, request, pk=None):
+        try:
+            pipeline = Pipeline.objects.get(pk=pk)
+            filename = f"{pipeline.name}.yaml"
+            myYaml = io.StringIO()
+            yaml = YAML()
+            yaml.preserve_quotes = False
+            yaml.dump(exportPipelineToYAMLObj(pk), myYaml)
+
+            response = HttpResponse(myYaml.getvalue(), content_type='text/plain',
+                                    status=status.HTTP_200_OK)
+            response['Content-Disposition'] = 'attachment; filename={0}'.format(filename)
+            response['filename'] = filename
+            return response
+
+        except Exception as e:
+            return Response(e,
+                            status=status.HTTP_400_BAD_REQUEST)
+
+    # Export script as YAML
+    @action(methods=['get'], detail=True)
+    def ExportToArchive(self, request, pk=None):
         try:
             pipeline = Pipeline.objects.get(pk=pk)
             filename = f"{pipeline.name}.yaml"

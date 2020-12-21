@@ -1,8 +1,12 @@
 import json
+import io
 import logging
+import zipfile
 from ruamel.yaml import YAML
 from ruamel.yaml.scalarstring import LiteralScalarString
 from celery import chain
+from django.conf import settings
+from django.core.files.storage import default_storage
 from .models import PythonScript, PipelineNode, Edge, Pipeline
 from Jobs.tasks.tasks import importScriptsFromYAML, importNodesFromYAML, importEdgesFromYAML, unlockPipeline, \
     linkRootNodeFromYAML, runScriptEnvVarInstaller, runScriptSetupScript, runScriptPackageInstaller, \
@@ -38,6 +42,7 @@ def exportScriptYAMLObj(scriptId):
 
         data = {
             'id': script.id,
+            'data_file': f"{script.data_file.uuid}" if script.data_file else None,
             'name': script.name,
             'human_name': script.human_name,
             'description': LiteralScalarString(script.description),
@@ -105,6 +110,83 @@ def exportPipelineEdgeToYAMLObj(pythonEdgeId):
     except Exception as e:
         print(f"Error exporting Pipeline Edge to YAML: {e}")
         return {}
+
+
+def exportPipelineToZip(pipelineId):
+
+    try:
+
+        usingS3 = (
+                settings.DEFAULT_FILE_STORAGE == "gremlin_gplv3.utils.storages.MediaRootS3Boto3Storage")
+
+        pipeline = Pipeline.objects.select_related('root_node').get(pk=pipelineId)
+
+        nodes = []
+        edges = []
+        scripts = {}
+
+        zip_bytes = io.BytesIO()
+        myYaml = io.StringIO()
+
+        yaml = YAML()
+        yaml.preserve_quotes = False
+
+        zip_file = zipfile.ZipFile(zip_bytes, mode='w', compression=zipfile.ZIP_DEFLATED)
+
+        for node in PipelineNode.objects.filter(parent_pipeline=pipeline):
+
+            if node.script:
+
+                scripts[node.script.id] = exportScriptYAMLObj(node.script.id)
+
+                if node.script.data_file and node.script.data_file.data_file:
+
+                    # THe precise field with the valid filename / path depends on the storage adapter, so handle accordingly
+                    if usingS3:
+                        filename = node.script.data_file.data_file.name
+
+                    else:
+                        filename = node.script.data_file.data_file.path
+
+                    data_file_bytes = default_storage.open(filename, mode='rb').read()
+                    zip_file.writestr(f"/data/{node.script.data_file.uuid}.zip", data_file_bytes)
+
+                scripts = list(scripts.values())
+
+        for edge in Edge.objects.filter(parent_pipeline=pipeline):
+            edges.append(exportPipelineEdgeToYAMLObj(edge.id))
+
+        for node in PipelineNode.objects.filter(parent_pipeline=pipeline):
+            nodes.append(exportPipelineNodeToYAMLObj(node.id))
+
+        pipeline_meta = {
+            'name': pipeline.name,
+            'description': LiteralScalarString(pipeline.description),
+            'root_node': pipeline.root_node.id,
+            'scale': pipeline.scale,
+            'x_offset': pipeline.x_offset,
+            'y_offset': pipeline.y_offset,
+        }
+
+        data = {
+            'pipeline': pipeline_meta,
+            'scripts': scripts,
+            'edges': edges,
+            'nodes': nodes,
+        }
+
+        yaml.dump(data, myYaml)
+
+        zip_file.writestr(f"{pipeline.name}.yaml", myYaml.getvalue())
+        zip_file.close()
+        zip_bytes.seek(io.SEEK_SET)
+
+        return zip_bytes
+
+    except Exception as e:
+        print(f"Error exporting Pipeline to archive: {e}")
+        return None
+
 
 def exportPipelineToYAMLObj(pipelineId):
 
