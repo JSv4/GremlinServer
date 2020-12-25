@@ -179,7 +179,7 @@ def exportPipelineToZip(pipelineId):
 
         yaml.dump(data, myYaml)
 
-        zip_file.writestr(f"{pipeline.name}.yaml", myYaml.getvalue())
+        zip_file.writestr("pipeline_export.yaml", myYaml.getvalue())
         zip_file.close()
         zip_bytes.seek(io.SEEK_SET)
 

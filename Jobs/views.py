@@ -952,41 +952,60 @@ class UploadScriptViewSet(APIView):
 
                 print(f"Received zip file contents: {importZip.namelist()}")
 
-                if not "/script/script.py" in importZip.namelist():
-                    print("No script @/script/script.py")
-                    raise ParseError("No /script/script.py")
-                else:
+                if "/script/script.py" in importZip.namelist():
                     print("Found script @ /script/script.py")
                     with importZip.open("/script/script.py") as myfile:
                         script = myfile.read().decode('UTF-8')
+
+                elif "script/script.py" in importZip.namelist():
+                    print("Found script @ script/script.py")
+                    with importZip.open("script/script.py") as myfile:
+                        script = myfile.read().decode('UTF-8')
+
+                else:
+                    print("No script @/script/script.py")
+                    raise ParseError("No /script/script.py")
+
                 print(f"Loaded script: {script}")
 
-                if not "/config.json" in importZip.namelist():
+                if "/config.json" in importZip.namelist():
+                    config_path = "/config.json"
+
+                elif "config.json":
+                    config_path = "config.json"
+
+                else:
                     print("No config file @ ./config.json")
                     raise ParseError("No /config.json config file")
-                else:
-                    with importZip.open("/config.json") as configFile:
 
-                        config_text = configFile.read().decode('UTF-8')
-                        print(f"Loaded config file @ ./config.json: {config_text}")
-                        config = json.loads(config_text)
-                        name = config['name']
-                        type = config['type']
-                        description = config['description']
-                        supported_file_types = config['supported_file_types']
-                        env_variables = config['env_variables']
-
+                with importZip.open(config_path) as configFile:
+                    config_text = configFile.read().decode('UTF-8')
+                    print(f"Loaded config file @ ./config.json: {config_text}")
+                    config = json.loads(config_text)
+                    name = config['name']
+                    type = config['type']
+                    description = config['description']
+                    supported_file_types = config['supported_file_types']
+                    env_variables = config['env_variables']
                 print(f"Parsed config file = {config}")
 
                 if "/setup/requirements.txt" in importZip.namelist():
                     print("Detected requirements file @ /setup/requirements.txt")
                     with importZip.open("/setup/requirements.txt") as requirementsFile:
                         requirements = requirementsFile.read().decode('UTF-8')
+                elif "setup/requirements.txt" in importZip.namelist():
+                    print("Detected requirements file @ setup/requirements.txt")
+                    with importZip.open("setup/requirements.txt") as requirementsFile:
+                        requirements = requirementsFile.read().decode('UTF-8')
                 print(f"Requirements file extracted: {requirements}")
 
                 if "/setup/install.sh" in importZip.namelist():
                     print("Detected install commands @ ./setup/install.sh")
                     with importZip.open("/setup/install.sh") as setupFile:
+                        setup_script = setupFile.read().decode('UTF-8')
+                elif "setup/install.sh" in importZip.namelist():
+                    print("Detected install commands @ setup/install.sh")
+                    with importZip.open("setup/install.sh") as setupFile:
                         setup_script = setupFile.read().decode('UTF-8')
                 print(f"Importing setup_script: {setup_script}")
 
@@ -996,7 +1015,14 @@ class UploadScriptViewSet(APIView):
                 dataZipBytes = io.BytesIO()
 
                 with zipfile.ZipFile(dataZipBytes, mode='w', compression=zipfile.ZIP_DEFLATED) as dataZipObj:
-                    for filename in [name for name in importZip.namelist() if name.startswith('/data')]:
+
+                    for filename in [name for name in importZip.namelist() if name.startswith('/data/')]:
+                        print(f"Handle filename {filename}")
+                        hasFiles = True
+                        dataZipObj.writestr(os.path.basename(filename), importZip.open(filename).read())
+                        manifest = manifest + f"\n{filename}" if manifest else filename
+
+                    for filename in [name for name in importZip.namelist() if name.startswith('data/')]:
                         print(f"Handle filename {filename}")
                         hasFiles = True
                         dataZipObj.writestr(os.path.basename(filename), importZip.open(filename).read())
