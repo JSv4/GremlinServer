@@ -5,8 +5,7 @@ import mimetypes
 import os, io, zipfile, sys
 from zipfile import ZipFile
 import json
-import shutil
-from datetime import datetime
+import base64
 
 # YAML Stuff
 from ruamel.yaml import YAML
@@ -35,7 +34,8 @@ from rest_framework.renderers import JSONRenderer
 
 # Gremlin Jobs Models and Serializers
 from Jobs.ImportExportUtils import exportScriptYAMLObj, exportPipelineNodeToYAMLObj, \
-    exportPipelineEdgeToYAMLObj, exportPipelineToYAMLObj, importPipelineFromYAML, exportPipelineToZip
+    exportPipelineEdgeToYAMLObj, exportPipelineToYAMLObj, importPipelineFromYAML, exportPipelineToZip, \
+    importPipelineFromZip
 from Jobs.tasks.task_helpers import transformStepInputs
 from .models import Document, Job, Result, PythonScript, PipelineNode, Pipeline, TaskLogEntry, JobLogEntry, Edge, \
     ScriptDataFile
@@ -860,7 +860,9 @@ class PythonScriptViewSet(viewsets.ModelViewSet):
             return Response(e,
                             status=status.HTTP_400_BAD_REQUEST)
 
-class UploadPipelineViewSet(APIView):
+
+class UploadPipelineZipViewSet(APIView):
+
     allowed_methods = ['post']
     permission_classes = [IsAuthenticated & WriteOnlyIfNotAdminOrEng]
     parser_classes = [MultiPartParser]
@@ -868,31 +870,62 @@ class UploadPipelineViewSet(APIView):
     def post(self, request, format=None):
 
         if not request.FILES['file']:
-            print("Empty content!")
-            raise ParseError("Empty content")
+            print("No file present")
+            raise ParseError("You haven't provided a file")
 
         try:
 
             print(f"Got new pipeline file: {request.FILES['file'].name}")
-            print(request.data)
 
-            yamlString = request.FILES['file'].read()
-            print("Yaml string:")
-            print(yamlString)
-            parent_pipeline = importPipelineFromYAML(yamlString, request.user)
+            parent_pipeline = importPipelineFromZip(request.FILES['file'].read(), request.user)
             serializer = PipelineSerializer(parent_pipeline)
 
             print(f"Should return: {serializer.data}")
 
             response = JsonResponse(serializer.data)
+
             return response
 
         except Exception as e:
-            print("Exception encountered: ")
+            print("Exception encountered importing Pipeline Zip: ")
             print(e)
             return Response(e,
                             status=status.HTTP_400_BAD_REQUEST)
 
+
+# class UploadPipelineViewSet(APIView):
+#     allowed_methods = ['post']
+#     permission_classes = [IsAuthenticated & WriteOnlyIfNotAdminOrEng]
+#     parser_classes = [MultiPartParser]
+#
+#     def post(self, request, format=None):
+#
+#         if not request.FILES['file']:
+#             print("Empty content!")
+#             raise ParseError("Empty content")
+#
+#         try:
+#
+#             print(f"Got new pipeline file: {request.FILES['file'].name}")
+#             print(request.data)
+#
+#             yamlString = request.FILES['file'].read()
+#             print("Yaml string toooo:")
+#             print(yamlString)
+#             parent_pipeline = importPipelineFromYAML(yamlString, request.user)
+#             serializer = PipelineSerializer(parent_pipeline)
+#
+#             print(f"Should return: {serializer.data}")
+#
+#             response = JsonResponse(serializer.data)
+#             return response
+#
+#         except Exception as e:
+#             print("Exception encountered: ")
+#             print(e)
+#             return Response(e,
+#                             status=status.HTTP_400_BAD_REQUEST)
+#
 
 class UploadScriptViewSet(APIView):
     allowed_methods = ['post']

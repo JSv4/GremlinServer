@@ -3,8 +3,8 @@ from rest_framework.routers import DefaultRouter
 
 from Jobs.views import JobViewSet, DocumentViewSet, ResultsViewSet, \
     PipelineViewSet, PythonScriptViewSet, PipelineStepViewSet, LogViewSet, \
-    UploadScriptViewSet, ProjectViewSet, EdgeViewSet, UploadPipelineViewSet, \
-    DashboardAggregatesViewSet, ScriptDataFileViewset
+    UploadScriptViewSet, ProjectViewSet, EdgeViewSet, \
+    DashboardAggregatesViewSet, ScriptDataFileViewset, UploadPipelineZipViewSet
 
 from gremlin_gplv3.users.api.views import InviteUserViewSet, AllUserViewSet, \
     UserViewSet, ChangePasswordViewSet
@@ -29,7 +29,8 @@ urlpatterns = [
     *router.urls,
     url(r'CreateAndLaunchJob', ProjectViewSet.as_view()),
     url(r'UploadScript', UploadScriptViewSet.as_view()),
-    url(r'UploadPipeline', UploadPipelineViewSet.as_view()),
+    # url(r'UploadPipeline', UploadPipelineViewSet.as_view()),
+    url(r'UploadPipelineZip', UploadPipelineZipViewSet.as_view()),
     url(r'InviteUser', InviteUserViewSet.as_view()),
     url(r'ChangePassword', ChangePasswordViewSet.as_view()),
     url(r'SystemStats', DashboardAggregatesViewSet.as_view())

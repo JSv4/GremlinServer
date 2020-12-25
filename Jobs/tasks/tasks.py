@@ -21,7 +21,7 @@ from datetime import datetime
 from gremlin_gplv3.utils.emails import SendJobFinishedEmail
 from Jobs.serializers import PythonScriptSummarySerializer  # TODO - target for deletion.
 from Jobs.models import Job, Document, PipelineNode, Result, PythonScript, \
-                        Edge, Pipeline, blank_state
+    Edge, Pipeline, ScriptDataFile
 from Jobs.tasks.task_helpers import exec_with_return, returnScriptMethod, buildScriptInput, \
     transformStepInputs, createFunctionFromString, buildNodePipelineRecursively, getPrecedingResults, \
     stopJob, jobSucceeded, getPrecedingNodesForNode, FaultTolerantTask
@@ -42,7 +42,7 @@ tika.initVM()  # initialize tika object
 from tika import parser  # then import Tika parser.
 
 # Create a Pytz obj
-utc=pytz.UTC
+utc = pytz.UTC
 
 # Excellent django logging guidance here: https://docs.python.org/3/howto/logging-cookbook.html
 logger = logging.getLogger(__name__)
@@ -305,8 +305,6 @@ def runScriptEnvVarInstaller(*args, scriptId=-1, oldScriptId=-1, env_variables=N
 
 @celery_app.task(base=FaultTolerantTask, name="Run Job To Node")
 def runJobToNode(*args, jobId=-1, endNodeId=-1, **kwargs):
-
-
     try:
 
         if jobId == -1:
@@ -387,7 +385,8 @@ def runJobToNode(*args, jobId=-1, endNodeId=-1, **kwargs):
                         resultsMerge.s(jobId=jobId, stepId=node.id)))
                 elif node.script.type == PythonScript.RUN_ON_JOB:
                     celery_jobs.append(
-                        applyPythonScriptToJob.s(jobId=jobId, nodeId=node.id, scriptId=node.script.id, ownerId=job.owner.id))
+                        applyPythonScriptToJob.s(jobId=jobId, nodeId=node.id, scriptId=node.script.id,
+                                                 ownerId=job.owner.id))
                 else:
                     raise PipelineError(message="{0} - {1}".format(JOB_FAILED_DID_NOT_FINISH,
                                                                    "Unrecognized script type: {0}".format(
@@ -416,7 +415,6 @@ def runJobToNode(*args, jobId=-1, endNodeId=-1, **kwargs):
 
 @celery_app.task(base=FaultTolerantTask, name="Run Job")
 def runJob(*args, jobId=-1, **kwargs):
-
     try:
 
         job = Job.objects.prefetch_related('pipeline').get(id=jobId)
@@ -479,7 +477,8 @@ def runJob(*args, jobId=-1, **kwargs):
                         resultsMerge.s(jobId=jobId, stepId=node.id)))
                 elif node.script.type == PythonScript.RUN_ON_JOB:
                     celery_jobs.append(
-                        applyPythonScriptToJob.s(jobId=jobId, nodeId=node.id, scriptId=node.script.id, ownerId=job.owner.id))
+                        applyPythonScriptToJob.s(jobId=jobId, nodeId=node.id, scriptId=node.script.id,
+                                                 ownerId=job.owner.id))
                 else:
                     raise PipelineError(message="{0} - {1}".format(JOB_FAILED_DID_NOT_FINISH,
                                                                    "Unrecognized script type: {0}".format(
@@ -636,7 +635,6 @@ def unlockScript(*args, scriptId=-1, oldScriptId=-1, installer=False, **kwargs):
 # shutdown the job
 @celery_app.task(base=FaultTolerantTask, name="Stop Current Pipeline")
 def stopPipeline(*args, jobId=-1, **kwargs):
-
     job = Job.objects.prefetch_related('owner', 'pipeline').get(pk=jobId)
 
     temp_out = io.StringIO()
@@ -680,7 +678,6 @@ def stopPipeline(*args, jobId=-1, **kwargs):
 # processingTask is assumed to take arguments job and doc
 @celery_app.task(base=FaultTolerantTask, name="Celery Wrapper for Python Job Doc Task")
 def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
-
     # Create loggers
     jobLog = io.StringIO()
     jobLogger = JobLogger(jobId=jobId, name="applyPythonScriptToJobDoc")
@@ -824,7 +821,8 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, nodeId=-1, scriptId=-1,
 
                 else:
 
-                    folder_last_modified_datetime = datetime.utcfromtimestamp(max(os.path.getmtime(root) for root, _, _ in os.walk(temp_dir)))
+                    folder_last_modified_datetime = datetime.utcfromtimestamp(
+                        max(os.path.getmtime(root) for root, _, _ in os.walk(temp_dir)))
                     logger.info(f"Server data file last modified: {folder_last_modified_datetime}")
 
                     if data_file_obj.modified.replace(tzinfo=utc) > folder_last_modified_datetime.replace(tzinfo=utc):
@@ -976,7 +974,6 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, nodeId=-1, scriptId=-1,
         jobLog.write(f"data {data}")
         jobLog.write(f"file name of {file_name} of type {type(file_name)}")
 
-
         # take file object and save to filesystem provided it is not none and plausibly could be an extension
         if file_name and file_bytes:
             name, file_extension = os.path.splitext(doc.name)
@@ -1023,7 +1020,6 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, nodeId=-1, scriptId=-1,
 
 @celery_app.task(base=FaultTolerantTask, name="Celery Wrapper for Python Job Task")
 def applyPythonScriptToJob(*args, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
-
     nodeLog = io.StringIO()  # Memory object to hold job logs for job-level commands (will redirect print statements)
     jobLogger = JobLogger(jobId=jobId, name="applyPythonScriptToJob")
 
@@ -1273,17 +1269,16 @@ def applyPythonScriptToJob(*args, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
         # call the script with the appropriate Gremlin / Django objects already loaded (don't want the user
         # interacting with underlying Django infrastructure.
         finished, message, data, file_bytes, file_name, doc_packaging = createFunctionFromString(script.script)(*args,
-                                                                                                             job=job,
-                                                                                                             step=node,
-                                                                                                             logger=scriptLogger,
-                                                                                                             nodeInputs=node_inputs,
-                                                                                                             jobInputs=job_inputs,
-                                                                                                             previousData=transformed_data,
-                                                                                                             dataZip=data_zip_obj,
-                                                                                                             **kwargs)
+                                                                                                                job=job,
+                                                                                                                step=node,
+                                                                                                                logger=scriptLogger,
+                                                                                                                nodeInputs=node_inputs,
+                                                                                                                jobInputs=job_inputs,
+                                                                                                                previousData=transformed_data,
+                                                                                                                dataZip=data_zip_obj,
+                                                                                                                **kwargs)
 
         logger.info("Finished script")
-
 
         # pull in data from preceding step node results to start building the output data for this node.
         dataObj = {
@@ -1413,7 +1408,6 @@ def chordfinisher(previousMessage, *args, **kwargs):
 # Tee up a parallel step by creating step result with proper start time... otherwise we'll lose
 @celery_app.task(base=FaultTolerantTask)
 def createSharedResultForParallelExecution(*args, jobId=-1, stepId=-1, root=False, **kwargs):
-
     try:
         temp = io.StringIO()
         job = Job.objects.get(id=jobId)
@@ -1498,7 +1492,6 @@ def createSharedResultForParallelExecution(*args, jobId=-1, stepId=-1, root=Fals
 # and pass them along to the next step
 @celery_app.task(base=FaultTolerantTask)
 def resultsMerge(*args, jobId=-1, stepId=-1, **kwargs):
-
     try:
 
         logger.info("Start resultsMerge...")
@@ -1813,41 +1806,83 @@ def linkRootNodeFromYAML(*args, pipeline_data=None, parentPipelineId=-1, **kwarg
 
     return return_data
 
-
+# I revised the chain handling to permit this to run with .si (no input args) or .s (input args) calls. Could probably do
+# that for all of these setup tasks but am not going to for now. Had to do this to accomodate inserting data file upload
+# task as first step in setup task pipeline
 @celery_app.task(base=FaultTolerantTask, name="Import Script from YAML")
-def importScriptsFromYAML(*Args, scripts=[], ownerId=-1, **kwargs):
-    return_data = {}
-    return_data['error'] = None
-    script_lookup = {}
+def importScriptsFromYAML(*args, scripts=[], ownerId=-1, **kwargs):
 
     try:
-        for script in scripts:
-            print("Handle script:")
-            print(script)
+        print(f"importScriptsFromYAML - received return_data of: {args}")
+        return_data = args[0]
 
-            new_script = PythonScript.objects.create(
-                owner_id=ownerId,
-                locked=True,
-                name=script['name'],
-                human_name=script['human_name'],
-                description=script['description'],
-                type=script['type'],
-                supported_file_types=script['supported_file_types'],
-                script=script['script'],
-                required_packages=script['required_packages'],
-                package_needs_install=bool(script['required_packages']),
-                setup_script=script['setup_script'],
-                script_needs_install=bool(script['setup_script']),
-                env_variables=script['env_variables'],
-                env_variables_need_install=bool(script['env_variables'])
-            )
+    except Exception:
+        return_data = {'error': None}
 
-            # Need to map the id in the YAML file to the id actually created by Django as there's almost no chance they'll be the same
-            script_lookup[int(script['id'])] = new_script.id
+    try:
 
-            print(f"Script created: {new_script}")
+        if not return_data['error']:
 
-        return_data['script_lookup'] = script_lookup
+            script_lookup = {}
+
+            print(f"linkRootNodeFromYAML - No error detected in pipeline so far... proceed to create scripts.")
+
+            for script in scripts:
+
+                print("Handle script:")
+                print(script)
+
+                script_data_file = None
+
+                print(f"This script should have a datafile: { bool(script['data_file']) }")
+                if script['data_file']:
+
+                    if not return_data['data_file_lookup']:
+                        message = f"When trying to import a script with a data file, it appears data file was not " \
+                                  f"successfully setup for script: {script}"
+                        logger.error(message)
+                        return_data['error'] = message
+                        break
+
+                    elif not return_data['data_file_lookup'][script['data_file']]:
+                        message = f"When trying to import a script with a data file, it appears some data files were " \
+                                  f"setup BUT no data file with a matching old uuid to this script's data file was " \
+                                  f"ever setup: {script}"
+                        logger.error(message)
+                        return_data['error'] = message
+                        break
+
+                    else:
+                        logger.info("It appears that the script data files were setup and a data file was imported for "
+                                    "this script!")
+                        script_data_file = ScriptDataFile.objects.get(uuid=return_data['data_file_lookup'][script['data_file']])
+                        logger.info(f"Successfully retrieved script data file object from database: {script_data_file}")
+
+                new_script = PythonScript.objects.create(
+                    owner_id=ownerId,
+                    locked=True,
+                    name=script['name'],
+                    human_name=script['human_name'],
+                    description=script['description'],
+                    type=script['type'],
+                    supported_file_types=script['supported_file_types'],
+                    script=script['script'],
+                    required_packages=script['required_packages'],
+                    package_needs_install=bool(script['required_packages']),
+                    setup_script=script['setup_script'],
+                    script_needs_install=bool(script['setup_script']),
+                    env_variables=script['env_variables'],
+                    env_variables_need_install=bool(script['env_variables']),
+                    data_file=script_data_file
+                )
+
+                # Need to map the id in the YAML file to the id actually created by Django on import. That way we can
+                # recreate the relationships that existed on the original Gremlin instance on this Gremlin instance.
+                script_lookup[int(script['id'])] = new_script.id
+
+                print(f"Script created: {new_script}")
+
+            return_data['script_lookup'] = script_lookup
 
     except Exception as e:
         error = f"Unable to create script from data: \n\n{scripts}\n\nERROR: {e}"
@@ -2031,14 +2066,13 @@ def packageJobResults(*args, jobId=-1, **kwargs):
 
                     with default_storage.open(filename, mode='rb') as file:
                         newChildPath = "/Step {0} ({1})/{2}".format(r.pipeline_node.id,
-                                                                     r.pipeline_node.name, zip_filename)
+                                                                    r.pipeline_node.name, zip_filename)
                         jobLogger.info(f"Zip file will be: {newChildPath}")
                         jobResultsZipData.writestr(newChildPath, file.read())
                         jobLogger.info("	--> DONE")
 
                 else:
                     jobLogger.info("There is not file object associated with this result.")
-
 
             # Step results already aggregated doc results, so we don't want to include those when assembling data.
             for num, r in enumerate(stepResults):
@@ -2059,16 +2093,16 @@ def packageJobResults(*args, jobId=-1, **kwargs):
                     if r.node_output_data:
                         jobLogger.info("There is step node data... write to data file")
                         newChildPath = "/Step {0} ({1})/{2}_data.json".format(r.pipeline_node.id,
-                                                                               r.pipeline_node.name,
-                                                                               r.pipeline_node.name)
+                                                                              r.pipeline_node.name,
+                                                                              r.pipeline_node.name)
                         jobLogger.info(f"Data file will be: {newChildPath}")
                         jobResultsZipData.writestr(newChildPath, json.dumps(r.node_output_data, indent=4))
 
                     # Write node states out
                     jobLogger.info("Write node end state to file")
                     newChildPath = "/Step {0} ({1})/{2}_final_state.json".format(r.pipeline_node.id,
-                                                                                  r.pipeline_node.name,
-                                                                                  r.pipeline_node.name)
+                                                                                 r.pipeline_node.name,
+                                                                                 r.pipeline_node.name)
                     jobLogger.info(f"Data file will be: {newChildPath}")
                     jobResultsZipData.writestr(newChildPath, json.dumps(r.end_state, indent=4))
 

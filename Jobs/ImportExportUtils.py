@@ -2,6 +2,7 @@ import json
 import io
 import logging
 import zipfile
+import base64
 from ruamel.yaml import YAML
 from ruamel.yaml.scalarstring import LiteralScalarString
 from celery import chain
@@ -11,6 +12,7 @@ from .models import PythonScript, PipelineNode, Edge, Pipeline
 from Jobs.tasks.tasks import importScriptsFromYAML, importNodesFromYAML, importEdgesFromYAML, unlockPipeline, \
     linkRootNodeFromYAML, runScriptEnvVarInstaller, runScriptSetupScript, runScriptPackageInstaller, \
     unlockScript, lockScript
+from Jobs.tasks.built_in_tasks import loadDataFilesFromZipBytes
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -233,6 +235,82 @@ def exportPipelineToYAMLObj(pipelineId):
     except Exception as e:
         print(f"Error exporting Pipeline Edge to YAML: {e}")
         return {}
+
+# WARNING - this runs asynchronously. It creates pipeline syncrhonously and returns the pipeline data. The pipeline locked,
+# however, and related scripts, nodes, edges AND data files get created asynchronously.
+def importPipelineFromZip(zip_bytes, owner):
+
+    try:
+
+        pipeline_zip = zipfile.ZipFile(io.BytesIO(zip_bytes))
+        print(f"Zip contents: {pipeline_zip.namelist()}")
+        yaml_string = pipeline_zip.read('pipeline_export.yaml')
+
+        yaml = YAML()
+        data = yaml.load(yaml_string)
+
+        print("Loaded import data")
+        print(data)
+
+        parent_pipeline = Pipeline.objects.create(
+            owner=owner,
+            locked=True,
+            imported=True,
+            name=data['pipeline']['name'],
+            description=data['pipeline']['description'],
+            scale=data['pipeline']['scale'],
+            x_offset=data['pipeline']['x_offset'],
+            y_offset=data['pipeline']['y_offset']
+        )
+
+        print("Created pipeline synchronously... Then lock object and run setup steps async.")
+
+        # NOTE: these are not running here... we're assembling a sequence of celery tasks which will be injected
+        # into the appropriate place in a larger, more complex setup pipeline. Use of asynchronous workers is to
+        # account for potentially long-running setup tasks and complex pipelines that, in theory have no limit on
+        # complexity. This provides some protection over having this live entirely in the views.
+        script_setup_steps = []
+        for script in data['scripts']:
+            script_setup_steps.extend([
+                lockScript.s(oldScriptId=script['id']),
+                runScriptEnvVarInstaller.s(oldScriptId=script['id']),
+                runScriptSetupScript.s(oldScriptId=script['id']),
+                runScriptPackageInstaller.s(oldScriptId=script['id']),
+                unlockScript.s(oldScriptId=script['id'], installer=True)
+            ])
+
+        print("Setup scripts:")
+        print(script_setup_steps)
+
+        # Bytes can be serialized as JSON but requires some encoding and decoding.
+        # Check this post:
+        encoded_zip_bytes = base64.b64encode(zip_bytes)  # b'ZGF0YSB0byBiZSBlbmNvZGVk' (notice the "b")
+        ascii_zip_bytes_string = encoded_zip_bytes.decode('ascii')
+
+        # Setup all the relationships asynchronously, otherwise this request could take forever to complete
+        # I originally tried to make script_setup_steps a group of chains, where the four script setup tasks
+        # for each script (runScriptEnvVarInstaller, runScriptSetupScript, runScriptPackageInstaller and unlockScript)
+        # would be a short but, if there were multiple script, the different script assembly groups would be grouped
+        # and run in parallel if worker bandwidth were available. Unfortunately, I ran into a weird issue where I had a
+        # task that created and launched these chords yet it seemed to run twice and the second call to it would break
+        # as it didn't have arguments. Never figured it out and didn't want that to delay the release. This version obv
+        # does everything in serial, so it's slower, but it doesn't seem to be an issue for now and I expect imports
+        # to be rare. Can work on improving this later if performance becomes as issue.
+        chain([
+            loadDataFilesFromZipBytes.si(ascii_zip_bytes_string=ascii_zip_bytes_string),
+            importScriptsFromYAML.s(scripts=data['scripts'], ownerId=owner.id),
+            importNodesFromYAML.s(nodes=data['nodes'], parentPipelineId=parent_pipeline.id, ownerId=owner.id),
+            importEdgesFromYAML.s(edges=data['edges'], parentPipelineId=parent_pipeline.id, ownerId=owner.id),
+            linkRootNodeFromYAML.s(pipeline_data=data['pipeline'], parentPipelineId=parent_pipeline.id),
+            *script_setup_steps,
+            unlockPipeline.s(pipelineId=parent_pipeline.id)
+        ]).apply_async()
+
+        return parent_pipeline
+
+    except Exception as e:
+        print(f"Error trying to import new pipeline: {e}")
+        return None
 
 # WARNING - this runs asynchronously. It creates pipeline syncrhonously and returns the pipeline data. The pipeline locked,
 # however, and related scripts, nodes and edges get created asynchronously.

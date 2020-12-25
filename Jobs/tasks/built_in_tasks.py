@@ -1,6 +1,6 @@
 from __future__ import absolute_import, unicode_literals
 
-import logging, zipfile, io, tempfile, os, celery, json
+import logging, zipfile, io, tempfile, os, celery, json, base64
 
 from django.core.files.base import ContentFile
 from django.db import connection
@@ -34,6 +34,64 @@ class FaultTolerantTask(celery.Task):
         connection.close()
 
 
+# Task to import a data file zip - note, there is duplicate, SYNCHRONOUS logic in the view to for the upload_data action
+# in the ScriptViewSet. For now, performance seems acceptable with uploads not having to wait for the data file to upload
+# and get moved to storage BUT... if that becomes a problem, would probably be appropriate to find a way to use this there
+# to and indicate on the backend somewhere that the data file is "processing". For now, just used as part of chain of tasks
+# used for a pipeline import from ZIP.
+@celery_app.task(base=FaultTolerantTask, name='Upload pipeline zip file')
+def loadDataFilesFromZipBytes(*args, ascii_zip_bytes_string=None, **kwargs):
+
+    return_data = {'error': None}
+    data_file_lookup = {}
+
+    try:
+
+        data_bytes = base64.b64decode(ascii_zip_bytes_string)
+        import_bytes = io.BytesIO(data_bytes)
+        import_zip = zipfile.ZipFile(import_bytes)
+
+        # Format should have all needed data files in a /data directory as zip files... so only look at these files
+        for filename in [name for name in import_zip.namelist() if name.startswith('/data/') and name.endswith(".zip")]:
+
+            old_uuid = filename[6:-4]  # Since we know data zips are in /data/, end in zip and in between is old uuid...
+            data_file_bytes = io.BytesIO(import_zip.open(filename).read())
+            manifest = ""
+
+            with zipfile.ZipFile(data_file_bytes) as dataZipObj:
+
+                for data_filename in dataZipObj.namelist():
+
+                    manifest = manifest + f"\n{data_filename}" if manifest else data_filename
+
+            # Create Django ContentFile to upload to ScriptDataFile obj
+            data_zip_file = ContentFile(data_file_bytes.getvalue())
+
+            # Create new ScriptDataFile obj
+            db_data_obj = ScriptDataFile.objects.create()
+
+            # Update new ScriptDataFile obj with
+            db_data_obj.manifest = manifest
+            db_data_obj.data_file.save("data.zip", data_zip_file)
+            db_data_obj.save()
+
+            # Now map the imported ScriptDataFile obj old UUID to the one on THIS system
+            data_file_lookup[old_uuid] = f"{db_data_obj.uuid}"
+
+        import_zip.close()
+
+        print("Finished importing data from zip")
+
+        return_data['data_file_lookup'] = data_file_lookup
+
+    except Exception as e:
+        error = f"Unable to import scrip data files for pipeline import. ERROR: {e}"
+        print(error)
+        return_data['error'] = error
+
+    return return_data
+
+
 # Task to calculate list of files in a zip.
 @celery_app.task(base=FaultTolerantTask, name="Calculate data file manifest")
 def calculateDataFileManifest(*args, script_data_file_uuid=-1, **kwargs):
@@ -58,12 +116,12 @@ def calculateDataFileManifest(*args, script_data_file_uuid=-1, **kwargs):
         print(f"File loaded from DB: {filename}")
 
         # look to see if there's anything in the data directory and, if so, zip and add to databse
-        manifest = "No data..."
+        manifest = ""
 
         with zipfile.ZipFile(data_file_bytes) as dataZipObj:
 
             for filename in dataZipObj.namelist():
-                manifest = manifest + f"\n{filename}"
+                manifest = manifest + f"\n{filename}" if manifest else filename
 
         data_model.manifest= f"DATA FILE MANIFEST:\n{manifest}"
         data_model.save()
