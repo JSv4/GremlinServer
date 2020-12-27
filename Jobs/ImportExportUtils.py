@@ -28,7 +28,11 @@ def exportScriptYAMLObj(scriptId):
 
     try:
 
+        print("Try exportScriptYAMLObj()")
+
         script = PythonScript.objects.get(pk=scriptId)
+
+        print("Fetched script obj")
 
         supported_file_types = ['*']
         try:
@@ -41,6 +45,8 @@ def exportScriptYAMLObj(scriptId):
             env_variables=json.loads(script.env_variables)
         except Exception as e:
             logger.error(f"Error trying to parse env_variables for script ID #{script.id}: {e}")
+
+        print("Start data")
 
         data = {
             'id': script.id,
@@ -56,6 +62,8 @@ def exportScriptYAMLObj(scriptId):
             'env_variables': env_variables,
             'schema': LiteralScalarString(script.schema)
         }
+
+        print(f"data: {data}")
 
         return data
 
@@ -122,10 +130,12 @@ def exportPipelineToZip(pipelineId):
                 settings.DEFAULT_FILE_STORAGE == "gremlin_gplv3.utils.storages.MediaRootS3Boto3Storage")
 
         pipeline = Pipeline.objects.select_related('root_node').get(pk=pipelineId)
+        print("Fetched pipeline obj...")
 
         nodes = []
         edges = []
         scripts = {}
+        script_dict = {}
 
         zip_bytes = io.BytesIO()
         myYaml = io.StringIO()
@@ -134,14 +144,24 @@ def exportPipelineToZip(pipelineId):
         yaml.preserve_quotes = False
 
         zip_file = zipfile.ZipFile(zip_bytes, mode='w', compression=zipfile.ZIP_DEFLATED)
+        print("Zip file created")
 
         for node in PipelineNode.objects.filter(parent_pipeline=pipeline):
 
+            print(f"Look over {node}")
+
             if node.script:
 
-                scripts[node.script.id] = exportScriptYAMLObj(node.script.id)
+                print(f"Node ID {node.script.id} has script: {node.script}")
+                print(f"Scripts was: {script_dict}")
+
+                script_dict[node.script.id] = exportScriptYAMLObj(node.script.id)
+
+                print(f"Script YAML created...")
 
                 if node.script.data_file and node.script.data_file.data_file:
+
+                    print("Script had a data file")
 
                     # THe precise field with the valid filename / path depends on the storage adapter, so handle accordingly
                     if usingS3:
@@ -153,13 +173,17 @@ def exportPipelineToZip(pipelineId):
                     data_file_bytes = default_storage.open(filename, mode='rb').read()
                     zip_file.writestr(f"/data/{node.script.data_file.uuid}.zip", data_file_bytes)
 
-                scripts = list(scripts.values())
+        scripts = list(script_dict.values())
+
+        print(f"Scripts are: {scripts}")
 
         for edge in Edge.objects.filter(parent_pipeline=pipeline):
             edges.append(exportPipelineEdgeToYAMLObj(edge.id))
+        print("Edges converted to YAML")
 
         for node in PipelineNode.objects.filter(parent_pipeline=pipeline):
             nodes.append(exportPipelineNodeToYAMLObj(node.id))
+        print("Nodes converted to YAML")
 
         pipeline_meta = {
             'name': pipeline.name,
@@ -177,11 +201,14 @@ def exportPipelineToZip(pipelineId):
             'nodes': nodes,
         }
 
+        print("Dump YAML")
         yaml.dump(data, myYaml)
 
         zip_file.writestr("pipeline_export.yaml", myYaml.getvalue())
         zip_file.close()
         zip_bytes.seek(io.SEEK_SET)
+
+        print("Done with zip_bytes... returning")
 
         return zip_bytes
 
