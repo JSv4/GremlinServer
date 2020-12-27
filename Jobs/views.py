@@ -1180,7 +1180,6 @@ class PipelineViewSet(viewsets.ModelViewSet):
             return Response(e,
                             status=status.HTTP_400_BAD_REQUEST)
 
-        # Export script as YAML
 
     @action(methods=['get'], detail=True)
     def ExportToZip(self, request, pk=None):
@@ -1193,10 +1192,11 @@ class PipelineViewSet(viewsets.ModelViewSet):
 
             response = FileResponse(
                 export_bytes,
-                content_type='application/zip',
                 as_attachment=True,
                 filename=filename
             )
+            response['Content-Disposition'] = 'attachment; filename={0}'.format(filename)
+            response['filename'] = filename
 
             return response
 
