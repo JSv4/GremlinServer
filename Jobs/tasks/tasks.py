@@ -1287,17 +1287,17 @@ def applyPythonScriptToJob(*args, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
             'parent_node_ids': result.end_state['parent_node_ids']
         }
 
-        logger.info(f"Data object: {dataObj}")
+        #logger.info(f"Data object: {dataObj}")
 
         # store outputs in both end_state and node_output_data - HERE
         result.end_state['node_results'][node.id] = dataObj
-        logger.info(f"pre save end state: {result.end_state}")
+        #logger.info(f"pre save end state: {result.end_state}")
         result.save()
-        logger.info(f"stored in end_State {result.end_state}")
+        #logger.info(f"stored in end_State {result.end_state}")
 
         result.node_output_data = {node.id: dataObj}
         result.save()
-        logger.info(f"stored node data: {result.node_output_data}")
+        #logger.info(f"stored node data: {result.node_output_data}")
 
         result.save()
         logger.info(f"Saved")
@@ -1325,6 +1325,11 @@ def applyPythonScriptToJob(*args, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
         # if there is a set of doc packaging instructions, build the doc package
         if doc_packaging and isinstance(doc_packaging, dict):
 
+            if not file_name:
+                message = f"ERROR - Script did not return a file_name for the packaged docs."
+                logging.error(message)
+                raise UserScriptError(message=message)
+
             packageBytes = io.BytesIO()
             packageZip = ZipFile(packageBytes, mode='w', compression=zipfile.ZIP_DEFLATED)
 
@@ -1333,7 +1338,10 @@ def applyPythonScriptToJob(*args, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
 
             for returnDocId in list(doc_packaging.keys()):
 
+                logger.info(f"Handle packaging instructions for: {returnDocId} & id var type is {type(returnDocId)}")
+
                 doc = Document.objects.get(id=returnDocId)
+                logger.info(f"Got doc: {doc}")
 
                 if usingS3:
                     filename = doc.file.name
@@ -1346,18 +1354,13 @@ def applyPythonScriptToJob(*args, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
 
                 with default_storage.open(filename, mode='rb') as file:
                     nodeLog.write(f"newChildPath root is {Path(doc_packaging[returnDocId])}")
-                    newChildPath = f"{doc_packaging[returnDocId]}/{docPath.name}"
+                    newChildPath = f"{doc_packaging[returnDocId]}{docPath.name}"
                     nodeLog.write(f"newChildPath is {newChildPath}")
                     packageZip.writestr(newChildPath, file.read())
 
             packageZip.close()
 
-            result.file.save("./node_results/{0}/{1}/Step {2} ({3}).{4}".format(
-                jobId,
-                nodeId,
-                node.name,
-                node.step_number + 1,
-                "zip"),
+            result.file.save(f"./node_results/{jobId}/{nodeId}/{file_name}",
                 ContentFile(packageBytes.getvalue())
             )
 
@@ -2038,7 +2041,7 @@ def packageJobResults(*args, jobId=-1, **kwargs):
                     jobLogger.info("Document {0} has file: {1}".format(r.id, filename))
 
                     with default_storage.open(filename, mode='rb') as file:
-                        newChildPath = "./Original Documents/{0}".format(os.path.basename(filename))
+                        newChildPath = "/Original Documents/{0}".format(os.path.basename(filename))
                         jobResultsZipData.writestr(newChildPath, file.read())
 
             for num, r in enumerate(allResults):

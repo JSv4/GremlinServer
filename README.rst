@@ -156,24 +156,9 @@ code it yourself and understand json schema.
 Pipelines & Nodes Data Outputs and Access in Pipeline
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-As you build document processing pipelines, the data produced by one node
-is passed to subsequent nodes and so on and so forth. Because script can be
-setup to run in parallel over all docs simultaneously or in parallel, one per job
-that results in slightly different data schemas being created and passed along
-the pipelines:
-
-Node inputs
-job_inputs (input from job - entered by user)
-node_inputs (input from node - def by engineer)
-
-Node outputs
-node_output_data - created by user script.
-job_state - updated results state produced at end of job step OR merge results
-
-# remove buildScriptInput
-# update getPrecedingResults to just pull previous results.
-
-- Nodes that have scripts that run once per doc return data like this::
+Each node in the document processing pipeline has a start and end state. This state contains
+the data that goes into the node and then is produced by it. This lets you access previous node
+outputs at any subsequent node in the pipeline. The node state object looks like this::
 
     {
         current_node: {
@@ -203,8 +188,90 @@ job_state - updated results state produced at end of job step OR merge results
         }
     }
 
-  - This gets packaged up by task "packageJobResults." Conformed parallel step merger to this format. Now need to ensure
-    script runner tasks are following format as well.
+Gremlin will pass the state from the last node to the next node as the "previousData" argument. It will automatically
+update this state object with output data of the current node upon completion. This state will be a) stored to DB, b)
+stored in the return output zip and c) passed to subsequent nodes (if applicable).
+
+Inputs Available in Your Scripts
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Depending on which type of script you've setup, your script will return one of two sets of named arguments:
+
+#. **RUN_ON_JOB** - For scripts meant to run once per job, Gremlin will pass your script the following args::
+
+    job=job,
+    step=node,
+    logger=scriptLogger,
+    nodeInputs=node_inputs,
+    jobInputs=job_inputs,
+    previousData=transformed_data,
+    dataZip=data_zip_obj
+
+#. **RUN_ON_JOB_DOC** - For scripts meant to run once per job, Gremlin will pass your script the following args::
+
+    docType=doc.type,
+    docText=doc.rawText,
+    docName=doc.name,
+    docByteObj=docBytes,
+    nodeInputs=node_result.node_inputs,
+    jobInputs=node_result.job_inputs,
+    previousData=transformed_data,
+    dataZip=data_zip_obj,
+    logger=scriptLogger,
+
+Returning Data from Your Script
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+You have a few different options to return data to the user depending on the type of script:
+
+#. **RUN_ON_JOB** - For scripts meant to run once per job, Gremlin expects the the following return statement::
+
+    return finished, message, data, file_bytes, file_name, doc_packaging
+
+  #. *finished* - should be a boolean which indicates script completed successfully or unsuccessfully.
+  #. *message* - string you can pass back indicating job status messages.
+  #. *data* - a dict that Gremlin will package up and return (as well as pass to subsequent nodes).
+  #. *file_bytes* - you tell gremlin to write a file to the resulting zip that will be given back to the user. Pass file bytes
+     back via this parameter (can also be a string if this is a txt file). Return None for no file.
+  #. *file_name* - if you are passing file_bytes back, make sure to pass a file_name string back as well.
+  #. *doc_packaging* - In lieu of giving Gremlin a file to package by passing file_bytes, you can instruct Gremlin to package up
+     the job documents in a certain folder structure inside of a zip. You might want to do this, for example, if you want
+     to sort or filter documents. For example, you might want to have two folders of docs, one for docs containing a given
+     provision and one for docs not containing it. Or you might want to cluster documents by some trait. The doc_packaging
+     variable should be a dictionary mapping document ids to the file path you want the document to have inside of a zip
+     file to be return to the user. So, taking the two examples we just discussed, the doc_packaging dict might look like this:
+
+       #. *clustering example*::
+
+           doc_packaging = {
+               1: '/Clusters/Cluster 1/',
+               2: '/Clusters/Cluster 2/',
+               3: '/Clusters/Cluster 1/',
+               4: '/Clusters/Cluster 1/'
+           }
+
+       #. *sorting docs by clause presence*::
+
+           doc_packaging = {
+               1: '/Early Termination/',
+               2: '/Early Termination/',
+               3: '/Early Termination/',
+               4: '/No Early Termination/'
+           }
+
+     **You do not need to return a doc_packaging dictionary, BUT, if you do, make sure to pass a file_name for the resulting
+     zip.**
+
+#. **RUN_ON_JOB_DOC** - For scripts meant to run once per doc per job, Gremlin expects the the following return statement::
+
+    return finished, message, data, file_bytes, file_name
+
+  #. *finished* - should be a boolean which indicates script completed successfully or unsuccessfully.
+  #. *message* - string you can pass back indicating job status messages.
+  #. *data* - a dict that Gremlin will package up and return (as well as pass to subsequent nodes).
+  #. *file_bytes* - you tell gremlin to write a file to the resulting zip that will be given back to the user. Pass file bytes
+     back via this parameter (can also be a string if this is a txt file). Return None for no file.
+  #. *file_name* - if you are passing file_bytes back, make sure to pass a file_name string back as well.
 
 Pipeline Architecture
 ^^^^^^^^^^^^^^^^^^^^^

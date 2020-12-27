@@ -5,26 +5,26 @@ from .models import Document, Job, Result, PythonScript, Pipeline, PipelineNode,
 
 @admin.register(ScriptDataFile)
 class DataFileAdmin(admin.ModelAdmin):
-	list_display = ['created', 'modified', 'pk']
+	list_display = ['uuid', 'created', 'modified']
 
 @admin.register(Document)
 class DocumentAdmin(admin.ModelAdmin):
-	list_display = ['name', 'extracted']
+	list_display = ['id', 'name', 'extracted']
 	search_fields = ['name',]
 
 @admin.register(Result)
 class ResultAdmin(admin.ModelAdmin):
-	list_display = ['name', 'start_time','stop_time']
+	list_display = ['id', 'name', 'start_time', 'stop_time']
 	search_fields = ['name']
 
 @admin.register(Job)
 class JobAdmin(admin.ModelAdmin):
-	list_display = ['name','queued','started', 'error', 'finished','status', 'created']
+	list_display = ['id', 'name', 'queued', 'started', 'error', 'finished', 'status', 'created']
 	search_fields = ['name']
 
 @admin.register(PipelineNode)
 class PipelineStepAdmin(admin.ModelAdmin):
-	list_display = ['name','script']
+	list_display = ['id', 'name', 'script']
 	search_fields = ['name']
 
 @admin.register(PythonScript)
@@ -46,6 +46,6 @@ class JobLogAdmin(admin.ModelAdmin):
 
 @admin.register(Pipeline)
 class PipelineAdmin(admin.ModelAdmin):
-	list_display = ['name', 'description']
+	list_display = ['id', 'name', 'description']
 	search_fields = ['name']
 

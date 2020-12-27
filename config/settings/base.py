@@ -323,12 +323,14 @@ CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 # http://docs.celeryproject.org/en/latest/userguide/configuration.html#task-time-limit
 # TODO: set to whatever value is adequate in your circumstances
-CELERY_TASK_TIME_LIMIT = 3600
+CELERY_TASK_TIME_LIMIT = 36000
 # http://docs.celeryproject.org/en/latest/userguide/configuration.html#task-soft-time-limit
 # TODO: set to whatever value is adequate in your circumstances
-CELERY_TASK_SOFT_TIME_LIMIT = 3600
+CELERY_TASK_SOFT_TIME_LIMIT = 36000
 # http://docs.celeryproject.org/en/latest/userguide/configuration.html#beat-scheduler
 CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
+# https://docs.celeryproject.org/en/stable/userguide/configuration.html#std-setting-worker_max_tasks_per_child
+CELERYD_MAX_TASKS_PER_CHILD = 20
 
 # django-allauth
 # ------------------------------------------------------------------------------
