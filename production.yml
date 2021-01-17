@@ -5,6 +5,7 @@ volumes:
   production_postgres_data_backups: {}
   production_traefik: {}
   worker_usr_data: {}
+  worker_root: {}
   worker_tmp: {}
 
 services:
@@ -66,6 +67,7 @@ services:
     volumes:
       - worker_usr_data:/usr/local
       - worker_tmp:/tmp
+      - worker_root:/root
       - .:/app
 
   celerybeat:

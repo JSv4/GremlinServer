@@ -4,6 +4,7 @@ volumes:
   local_postgres_data: {}
   local_postgres_data_backups: {}
   worker_usr_data: {}
+  worker_root: {}
   worker_tmp: {}
 
 services:
@@ -52,6 +53,7 @@ services:
     volumes:
       - worker_usr_data:/usr/local
       - worker_tmp:/tmp
+      - worker_root:/root
       - .:/app
 
     ports: []
