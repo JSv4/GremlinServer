@@ -3,7 +3,7 @@ version: '3'
 volumes:
   local_postgres_data: {}
   local_postgres_data_backups: {}
-  worker_usr_data: {}
+  worker_usr: {}
   worker_root: {}
   worker_tmp: {}
 
@@ -46,12 +46,12 @@ services:
   gremlinworker:
     <<: *django
     image: gremlin_local_django:latest
-    container_name: gremlinworker
+    container_name: gremlin_worker
     depends_on:
       - redis
       - postgres
     volumes:
-      - worker_usr_data:/usr/local
+      - worker_usr:/usr
       - worker_tmp:/tmp
       - worker_root:/root
       - .:/app

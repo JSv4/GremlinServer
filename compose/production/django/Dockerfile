@@ -1,12 +1,28 @@
 
-FROM python:3.8-slim-buster
+FROM python:3.7-buster
 
 ENV PYTHONUNBUFFERED 1
 
 RUN apt-get update \
   # dependencies for building Python packages
+  && python -m pip install -U pip \
+  && pip install setuptools \
+  && apt-get install -y make \
   && apt-get install -y build-essential \
-  # psycopg2 dependencies
+  && apt-get install -y libssl-dev \
+  && apt-get install -y zlib1g-dev \
+  && apt-get install -y libbz2-dev \
+  && apt-get install -y libreadline-dev \
+  && apt-get install -y libsqlite3-dev \
+  && apt-get install -y wget \
+  && apt-get install -y curl \
+  && apt-get install -y llvm \
+  && apt-get install -y libncurses5-dev \
+  && apt-get install -y libncursesw5-dev \
+  && apt-get install -y xz-utils \
+  && apt-get install -y tk-dev \
+  && apt-get install -y python3-dev \
+  && apt-get install -y python-dev \  # psycopg2 dependencies
   && apt-get install -y libpq-dev \
   # Translations dependencies
   && apt-get install -y gettext \

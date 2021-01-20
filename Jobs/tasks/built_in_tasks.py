@@ -130,11 +130,11 @@ def calculateDataFileManifest(*args, script_data_file_uuid=-1, **kwargs):
         logger.error(f"Error trying to calculate data file manifest for data file obj ID #{script_data_file_uuid}: {e}")
 
 
-# Task to zip up a script and store it in the DB. This is currently not used. Performance has been okay doing this
-# within the views... Rather than recode import/export using celery tasks - which will require an entirely new messaging
-# system on the frontend... let's see how the performance is doing this in the views for now... I suspect it will probably
-# be OK for most data but will cause issues for files that are over a couple hundred MBs. I do think this needs to be
-# addressed eventually BUT probably not a great use of time right now.
+# NOT USED: Task to zip up a script and store it in the DB. This is currently not used. Performance has been okay doing
+# this within the views... Rather than recode import/export using celery tasks - which will require an entirely new
+# messaging system on the frontend... let's see how the performance is doing this in the views for now... I suspect it
+# will probably be OK for most data but will cause issues for files that are over a couple hundred MBs. I do think this
+# needs to be addressed eventually BUT probably not a great use of time right now.
 @celery_app.task(base=FaultTolerantTask, name="Zip script for export")
 def createScriptExportZip(*args, script_id=-1, owner_id=-1, **kwargs):
 

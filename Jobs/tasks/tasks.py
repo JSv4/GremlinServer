@@ -61,79 +61,6 @@ result_object_template = {
     'doc_results': []
 }
 
-
-# One of the challenges of switching to a docker-based deploy is that system env isn't persisted and
-# The whole goal of this system is to dynamically provision and reprovision scripts into a data processing
-# pipeline. Sooo.... current workaround (to increase performance on *script* run is to preprocess all of the setup
-# on startup. Currently the approach is super naive. Doesn't do any checking to see if this is necessary so could be duplicative
-@celeryd_after_setup.connect
-def setup_direct_queue(sender, instance, **kwargs):
-    try:
-        logging.info(f"Celery worker is up.\nSender:{sender}.\nInstance:\n {instance}")
-
-        scripts = PythonScript.objects.all()
-
-        # For each pythonScript, run the setup code...
-        for pythonScript in scripts:
-
-            packages = pythonScript.required_packages.split("\n")
-            if len(packages) > 0:
-                logging.info(f"Script requires {len(packages)} packages. "
-                             f"Ensure required packages are installed:\n {pythonScript.required_packages}")
-
-                p = subprocess.Popen([sys.executable, "-m", "pip", "install", *packages], stdout=subprocess.PIPE)
-                out, err = p.communicate()
-
-                # Need to escape out the escape chars in the resulting string: https://stackoverflow.com/questions/6867588/how-to-convert-escaped-characters
-                out = codecs.getdecoder("unicode_escape")(out)[0]
-                if err:
-                    err = codecs.getdecoder("unicode_escape")(err)[0]
-                    logging.error(f"Errors from pythonScript pre check: \n{err}")
-
-                logging.info(f"Results of python installer for {pythonScript.name} \n{out}")
-
-            setupScript = pythonScript.setup_script
-            if setupScript != "":
-
-                logging.info(f"Script {pythonScript.name} has setupScript: {setupScript}")
-
-                lines = setupScript.split("\n")
-
-                for line in lines:
-
-                    p = subprocess.Popen(line.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                    out, err = p.communicate()
-
-                    # Need to escape out the escape chars in the resulting string: https://stackoverflow.com/questions/6867588/how-to-convert-escaped-characters
-                    out = codecs.getdecoder("unicode_escape")(out)[0]
-                    if err:
-                        err = codecs.getdecoder("unicode_escape")(err)[0]
-                        logging.error(f"Errors from pythonScript pre check: \n{err}")
-
-                    logging.info(f"Results of bash install pythonScript for {pythonScript.name}: \n{out}")
-
-            envVariables = pythonScript.env_variables
-            if envVariables != "":
-                logging.info(f"It appears there are env variables: {envVariables}")
-
-                vars = {}
-                try:
-                    vars = json.loads(envVariables)
-                    logging.info(f"Parsed following env var structure: {vars}")
-                    logging.info(f"Var type is: {type(vars)}")
-                except:
-                    logging.warning("Unable to parse env variables.")
-                    pass
-
-                for e, v in vars.items():
-                    logging.info(f"Adding env_var {e} with value {v}")
-                    os.environ[e] = v
-
-    except Exception as e:
-        logging.error(f"Error setting up celery worker on celeryd_init.\nSender:{sender}.\n"
-                      f"Instance:\n {instance} \nError: \n{e}")
-
-
 @celery_app.task(base=FaultTolerantTask, name="Run Script Package Installer")
 def runScriptPackageInstaller(*args, scriptId=-1, oldScriptId=-1, new_packages="", **kwargs):
     logger.info(f"runScriptPackageInstaller - scriptId {scriptId} and oldScriptId {oldScriptId}: {args}")
@@ -159,30 +86,40 @@ def runScriptPackageInstaller(*args, scriptId=-1, oldScriptId=-1, new_packages="
             logger.info(f"Using model's packages. Install: {pythonScript.required_packages}")
             packages = pythonScript.required_packages.split("\n")
 
+        ### START REPLACE
+
         if len(packages) > 0:
             logging.info(f"Script requires {len(packages)} packages. "
                          f"Ensure required packages are installed:\n {pythonScript.required_packages}")
 
-            p = subprocess.Popen([sys.executable, "-m", "pip", "install", *packages], stdout=subprocess.PIPE)
-            out, err = p.communicate()
+            error = False
+            error_msg = ""
+            output_msg = ""
+
+            result = subprocess.run(
+                [sys.executable, "-m", "pip", "install", *packages], capture_output=True, text=True
+            )
 
             # Need to escape out the escape chars in the resulting string: https://stackoverflow.com/questions/6867588/how-to-convert-escaped-characters
-            out = codecs.getdecoder("unicode_escape")(out)[0]
-            return_data['package_installer_message'] = out
+            return_data['package_installer_message'] = result.stdout
 
-            if err:
-                err = codecs.getdecoder("unicode_escape")(err)[0]
-                logging.error(f"Errors from pythonScript pre check: \n{err}")
-                return_data['package_installer_error'] = err
+            if result.stderr:
+                logging.error(f"Errors from pythonScript pre check: \n{result.stderr}")
+                return_data['package_installer_error'] = result.stderr
+                return_data['error'] = result.stderr
+                return_data['packages_installed'] = False
 
-            logging.info(f"Results of python installer for {pythonScript.name} \n{out}")
+            logging.info(f"Results of python installer for {pythonScript.name} \n{result.stdout}")
             return_data['packages_installed'] = True
 
     except Exception as e:
+        print(f"~~~Exception detected in installer: {e}")
         error = f"Error setting running python script installers.\nScript ID:{scriptId}.\nError: \n{e}"
         logging.error(error)
         return_data['error'] = error
         return_data['packages_installed'] = False
+
+    print(f"Package installer data: {return_data}")
 
     return return_data
 
@@ -1605,99 +1542,6 @@ def resultsMerge(*args, jobId=-1, stepId=-1, **kwargs):
 
     except Exception as e:
         return f"{JOB_FAILED_DID_NOT_FINISH} - Error on results merger: {e}"
-
-
-@celery_app.task(base=FaultTolerantTask, name="Ensure Script is Available")
-def prepareScript(*args, jobId=-1, scriptId=-1, **kwargs):
-    try:
-        if len(args) > 0 and not jobSucceeded(args[0]):
-            message = "{0} - Preceding task failed for job Id {1}. Message: {2}".format(JOB_FAILED_DID_NOT_FINISH,
-                                                                                        jobId,
-                                                                                        args[0])
-            stopJob(jobId=jobId, status=message, error=True)
-            return message
-
-        script = PythonScript.objects.get(id=scriptId)
-        packages = script.required_packages.split("\n")
-
-        if len(packages) > 0:
-            logging.info(f"Script requires {len(packages)} packages. "
-                         f"Ensure required packages are installed:\n {script.required_packages}")
-
-            p = subprocess.Popen([sys.executable, "-m", "pip", "install", *packages], stdout=subprocess.PIPE)
-            out, err = p.communicate()
-
-            # Need to escape out the escape chars in the resulting string: https://stackoverflow.com/questions/6867588/how-to-convert-escaped-characters
-            out = codecs.getdecoder("unicode_escape")(out)[0]
-            if err:
-                err = codecs.getdecoder("unicode_escape")(err)[0]
-                logging.error(f"Errors from script pre check: \n{err}")
-
-            logging.info(f"Results of script pre check: \n{out}")
-
-        setupScript = script.setup_script
-        if setupScript != "":
-
-            lines = setupScript.split("\n")
-
-            for line in lines:
-
-                p = subprocess.Popen(line.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                out, err = p.communicate()
-
-                # Need to escape out the escape chars in the resulting string: https://stackoverflow.com/questions/6867588/how-to-convert-escaped-characters
-                out = codecs.getdecoder("unicode_escape")(out)[0]
-                if err:
-                    err = codecs.getdecoder("unicode_escape")(err)[0]
-                    logging.error(f"Errors from script pre check: \n{err}")
-
-                logging.info(f"Results of script pre check: \n{out}")
-
-        envVariables = script.env_variables
-        if envVariables != "":
-            logging.info(f"It appears there are env variables: {envVariables}")
-
-            vars = {}
-            try:
-                vars = json.loads(envVariables)
-                logging.info(f"Parsed following env var structure: {vars}")
-            except:
-                logging.warning("Unable to parse env variables.")
-                pass
-
-            for e, v in vars.items():
-                logging.info(f"Adding env_var {e} with value {v}")
-                os.environ[e] = v
-
-        return JOB_SUCCESS
-
-    except Exception as e:
-        message = "{0} - Error trying to ensure script is setup: {1}".format(
-            JOB_FAILED_INVALID_DOC_ID, e)
-        logger.error(message)
-        return message
-
-
-# Task to install a python package list (same as you would a la "pip install package1 package 2 package3 package...")
-@celery_app.task(base=FaultTolerantTask, name="Install Python Package")
-def installPackages(*args, scriptId=-1, **kwargs):
-    log = "#################### Package Install Log ####################\n\n{1}"
-
-    # call pip as subprocess in current environment. Capture output using p.communicate()
-    # based on: https://stackoverflow.com/questions/2502833/store-output-of-subprocess-popen-call-in-a-string
-    for package in args:
-        p = subprocess.Popen([sys.executable, "-m", "pip", "install", package], stdout=subprocess.PIPE)
-        out, err = p.communicate()
-
-        # Need to escape out the escape chars in the resulting string: https://stackoverflow.com/questions/6867588/how-to-convert-escaped-characters
-        out = codecs.getdecoder("unicode_escape")(out)[0]
-        log = log + "\n\n" + out
-
-    script = PythonScript.objects.get(id=scriptId)
-    script.setup_log = log
-    script.save()
-
-    return "{0} - Package install: {1}".format(JOB_SUCCESS, out)
 
 
 @celery_app.task(base=FaultTolerantTask, name="Import Edges from YAML")
