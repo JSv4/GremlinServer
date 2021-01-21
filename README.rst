@@ -412,6 +412,7 @@ Licenses and Attributions
 
 - Icons
 
+  - `Monster`_ - By iconcheese (`CC BY 3.0`_)
   - `Starting Flags`_ - By Xela Ub, VN (`CC BY 3.0`_)
   - `Step Arrows`_ - BY luca fruzza, IT (`CC BY 3.0`_)
   - `Split Arrows`_ - By Hea Poh Lin, MY (`CC BY 3.0`_)
@@ -424,6 +425,7 @@ Licenses and Attributions
   - Django Rest Framework
   - Celery
 
+.. _Monster: https://thenounproject.com/search/?q=monster&i=2235987
 .. _Starting Flags: https://thenounproject.com/search/?q=start+flag&i=314735
 .. _CC BY 3.0: https://creativecommons.org/licenses/by/3.0/
 .. _Step Arrows: https://thenounproject.com/search/?q=steps&i=1677173
