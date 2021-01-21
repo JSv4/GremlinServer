@@ -1,7 +1,14 @@
+.. figure:: docs/images/gremlin_512.png
+   :width: 100px
+
+=============
 GREMLIN GPLv3
 =============
 
+-----------------------------------------------------
 The open source, low-code legal engineering platform.
+-----------------------------------------------------
+
 
 .. image:: https://img.shields.io/badge/built%20with-Cookiecutter%20Django-ff69b4.svg
      :target: https://github.com/pydanny/cookiecutter-django/
@@ -12,6 +19,47 @@ The open source, low-code legal engineering platform.
 
 :License: AGPL
 
+Overview
+--------
+
+Gremlin is designed for building and deploying text transformation pipelines. Documents go in,
+text is extracted, and then the text and source documents are automatically passed into Python
+scripts that you write. Any data or files you return from your script is automatically packaged
+up and returned upon the completion of execution. You can mix and match scripts and build complex
+pipelines of scripts, letting you combine tested building blocks of logic to achieve more complex
+tasks.
+
+
+Features
+--------
+
+Visual Document / Text Processing Pipeline Editor
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. figure:: docs/images/pipeline_editor.png
+
+.. figure:: docs/images/PipelineBuilder.gif
+
+Built-in Python Editor
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. figure:: docs/images/script_editor.png
+
+Wizard View for Easy Deployment to End-Users
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. figure:: docs/images/LawyerInterface.gif
+
+Example Use-Cases
+-----------------
+
+Transformer-Powered Contract Analysis
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. figure:: docs/images/AtticusClassifier.gif
+
+MORE TO COME (see samples folder for sample, importable Gremlin pipelines)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Installation
 ------------
@@ -125,7 +173,7 @@ Installation
         docker-compose -f local.yml up
 
 Interacting with GremlinServer
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+------------------------------
 
 At the moment, the documentation for the API is admittedly sparse. We recommend that you separately install and run GremlinGUI
 for a modern, REACT-based way to access and use GremlinServer. You can use the GremlinServer directly, however, though we don't
@@ -141,7 +189,7 @@ recommend it except for people who are already familiar with Django and have a w
       will delete associated results and cannot be recovered.
 
 Pipeline & Node Schemas
-^^^^^^^^^^^^^^^^^^^^^^^
+-----------------------
 
 GREMLIN currently supports checking user-provided inputs against
 a pre-set "schema" defined with JSON-schema. This is currently a very
@@ -154,7 +202,7 @@ For now, however, IF you provide a schema (and you don't have to), you need to
 code it yourself and understand json schema.
 
 Pipelines & Nodes Data Outputs and Access in Pipeline
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+-----------------------------------------------------
 
 Each node in the document processing pipeline has a start and end state. This state contains
 the data that goes into the node and then is produced by it. This lets you access previous node
@@ -193,7 +241,7 @@ update this state object with output data of the current node upon completion. T
 stored in the return output zip and c) passed to subsequent nodes (if applicable).
 
 Inputs Available in Your Scripts
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+--------------------------------
 
 Depending on which type of script you've setup, your script will return one of two sets of named arguments:
 
@@ -220,7 +268,7 @@ Depending on which type of script you've setup, your script will return one of t
     logger=scriptLogger,
 
 Returning Data from Your Script
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+-------------------------------
 
 You have a few different options to return data to the user depending on the type of script:
 
@@ -274,7 +322,7 @@ You have a few different options to return data to the user depending on the typ
   #. *file_name* - if you are passing file_bytes back, make sure to pass a file_name string back as well.
 
 Pipeline Architecture
-^^^^^^^^^^^^^^^^^^^^^
+---------------------
 
 NOTE: Improved documentation for the pipeline architecture is coming. This current documentation is meant to describe how
 Gremlin assembles scripts into a sequence of celery tasks that are then executed by celery workers. Look in Jobs/tasks/tasks.py
@@ -353,14 +401,14 @@ for the code behind the task types described below. There are other helper funct
         through the pipeline and stop the job, storing the appropriate results and error messages in the database.
 
 Further Guidance
-^^^^^^^^^^^^^^^^
+----------------
 
 See detailed `cookiecutter-django Docker documentation`_.
 
 .. _`cookiecutter-django Docker documentation`: http://cookiecutter-django.readthedocs.io/en/latest/deployment-with-docker.html
 
 Licenses and Attributions
-^^^^^^^^^^^^^^^^^^^^^^^^^
+-------------------------
 
 - Icons
 
