@@ -1,5 +1,5 @@
 .. figure:: docs/images/gremlin_512.png
-   :width: 100px
+   :width: 50px
 
 =============
 GREMLIN GPLv3
