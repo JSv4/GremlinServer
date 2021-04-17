@@ -16,12 +16,17 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/
 """
 
-from django.conf.urls import url
-from gremlin.users.api.views import RecoverUsernameViewSet, \
-    NewPasswordRequestViewSet
+from django.urls import path
 
-# DRF Basics
+from gremlin.users.views import (
+    user_detail_view,
+    user_redirect_view,
+    user_update_view,
+)
+
+app_name = "users"
 urlpatterns = [
-    url(r'RecoverUsername', RecoverUsernameViewSet.as_view()),
-    url(r'ResetPassword', NewPasswordRequestViewSet.as_view())
+    path("~redirect/", view=user_redirect_view, name="redirect"),
+    path("~update/", view=user_update_view, name="update"),
+    path("<str:username>/", view=user_detail_view, name="detail"),
 ]

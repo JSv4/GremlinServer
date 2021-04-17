@@ -57,7 +57,7 @@ AWS_S3_REGION_NAME = env("DJANGO_AWS_S3_REGION_NAME", default=None)
 STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 # MEDIA
 # ------------------------------------------------------------------------------
-DEFAULT_FILE_STORAGE = "gremlin_gplv3.utils.storages.MediaRootS3Boto3Storage"
+DEFAULT_FILE_STORAGE = "gremlin.utils.storages.MediaRootS3Boto3Storage"
 MEDIA_URL = f"https://{AWS_STORAGE_BUCKET_NAME}.s3.amazonaws.com/media/"
 
 # WhiteNoise

@@ -9,6 +9,9 @@ RUN apt-get update \
   && pip install setuptools \
   && apt-get install -y make \
   && apt-get install -y build-essential \
+  && apt-get install -y python3-dev \
+  && apt-get install -y python-dev \
+  && apt-get install -y libpoppler-cpp-dev \
   && apt-get install -y libssl-dev \
   && apt-get install -y zlib1g-dev \
   && apt-get install -y libbz2-dev \
@@ -21,8 +24,7 @@ RUN apt-get update \
   && apt-get install -y libncursesw5-dev \
   && apt-get install -y xz-utils \
   && apt-get install -y tk-dev \
-  && apt-get install -y python3-dev \
-  && apt-get install -y python-dev \
+
   # psycopg2 dependencies
   && apt-get install -y libpq-dev \
   # Translations dependencies
@@ -30,6 +32,9 @@ RUN apt-get update \
   # cleaning up unused files
   && apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false \
   && rm -rf /var/lib/apt/lists/*
+
+# Upgrade Pip
+RUN pip install --upgrade pip
 
 # Requirements are installed here to ensure they will be cached.
 COPY ./requirements /requirements

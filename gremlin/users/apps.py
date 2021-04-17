@@ -16,12 +16,16 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/
 """
 
-from django.conf.urls import url
-from gremlin.users.api.views import RecoverUsernameViewSet, \
-    NewPasswordRequestViewSet
+from django.apps import AppConfig
+from django.utils.translation import gettext_lazy as _
 
-# DRF Basics
-urlpatterns = [
-    url(r'RecoverUsername', RecoverUsernameViewSet.as_view()),
-    url(r'ResetPassword', NewPasswordRequestViewSet.as_view())
-]
+
+class UsersConfig(AppConfig):
+    name = "gremlin.users"
+    verbose_name = _("Users")
+
+    def ready(self):
+        try:
+            import gremlin.users.signals  # noqa F401
+        except ImportError:
+            pass

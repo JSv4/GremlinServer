@@ -19,19 +19,19 @@ along with this program.  If not, see <https://www.gnu.org/licenses/
 from django.conf.urls import url
 from rest_framework.routers import DefaultRouter
 
-from Jobs.views import JobViewSet, DocumentViewSet, ResultsViewSet, \
+from gremlin.jobs.views import JobViewSet, DocumentViewSet, ResultsViewSet, \
     PipelineViewSet, PythonScriptViewSet, PipelineStepViewSet, LogViewSet, \
     UploadScriptViewSet, ProjectViewSet, EdgeViewSet, \
     DashboardAggregatesViewSet, ScriptDataFileViewset, UploadPipelineZipViewSet
 
-from gremlin_gplv3.users.api.views import InviteUserViewSet, AllUserViewSet, \
+from gremlin.users.api.views import InviteUserViewSet, AllUserViewSet, \
     UserViewSet, ChangePasswordViewSet
 
 # DRF Basics
 router = DefaultRouter()
 router.register(r'User', UserViewSet)
 router.register(r'Users', AllUserViewSet)
-router.register(r'Jobs', JobViewSet)
+router.register(r'jobs', JobViewSet)
 router.register(r'Documents', DocumentViewSet)
 router.register(r'Results', ResultsViewSet)
 router.register(r'PipelineSteps', PipelineStepViewSet)

@@ -8,8 +8,8 @@ from corsheaders.defaults import default_headers
 import environ
 
 ROOT_DIR = Path(__file__).resolve(strict=True).parent.parent.parent
-# gremlin_gplv3/
-APPS_DIR = ROOT_DIR / "gremlin_gplv3"
+# gremlin/
+APPS_DIR = ROOT_DIR / "gremlin"
 env = environ.Env()
 
 READ_DOT_ENV_FILE = env.bool("DJANGO_READ_DOT_ENV_FILE", default=False)
@@ -79,8 +79,8 @@ THIRD_PARTY_APPS = [
     "drf_yasg",
 ]
 LOCAL_APPS = [
-    "gremlin_gplv3.users.apps.UsersConfig",
-    'Jobs.apps.JobsConfig',
+    "gremlin.users.apps.UsersConfig",
+    'gremlin.jobs.apps.JobsConfig',
 ]
 # https://docs.djangoproject.com/en/dev/ref/settings/#installed-apps
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -88,7 +88,7 @@ INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 # MIGRATIONS
 # ------------------------------------------------------------------------------
 # https://docs.djangoproject.com/en/dev/ref/settings/#migration-modules
-MIGRATION_MODULES = {"sites": "gremlin_gplv3.contrib.sites.migrations"}
+MIGRATION_MODULES = {"sites": "gremlin.contrib.sites.migrations"}
 
 # AUTHENTICATION
 # ------------------------------------------------------------------------------
@@ -199,7 +199,7 @@ TEMPLATES = [
                 "django.template.context_processors.static",
                 "django.template.context_processors.tz",
                 "django.contrib.messages.context_processors.messages",
-                "gremlin_gplv3.utils.context_processors.settings_context",
+                "gremlin.utils.context_processors.settings_context",
             ],
         },
     }
@@ -264,11 +264,11 @@ MANAGERS = ADMINS
         },
         'task_db_log': {
             'level': 'DEBUG',
-            'class': 'Jobs.tasklogger.TaskDatabaseLogHandler'
+            'class': 'jobs.tasklogger.TaskDatabaseLogHandler'
         },
         'job_db_log': {
             'level': 'DEBUG',
-            'class': 'Jobs.tasklogger.JobDatabaseLogHandler'
+            'class': 'jobs.tasklogger.JobDatabaseLogHandler'
         },
     },
     'formatters': {
@@ -288,7 +288,7 @@ MANAGERS = ADMINS
             'level': 'DEBUG',
             'propagate': True
         },
-        'Jobs': {
+        'jobs': {
             'handlers':['console','file'],
             'level': 'DEBUG',
             'propogate': True
@@ -342,9 +342,9 @@ ACCOUNT_EMAIL_REQUIRED = True
 # https://django-allauth.readthedocs.io/en/latest/configuration.html
 ACCOUNT_EMAIL_VERIFICATION = "mandatory"
 # https://django-allauth.readthedocs.io/en/latest/configuration.html
-ACCOUNT_ADAPTER = "gremlin_gplv3.users.adapters.AccountAdapter"
+ACCOUNT_ADAPTER = "gremlin.users.adapters.AccountAdapter"
 # https://django-allauth.readthedocs.io/en/latest/configuration.html
-SOCIALACCOUNT_ADAPTER = "gremlin_gplv3.users.adapters.SocialAccountAdapter"
+SOCIALACCOUNT_ADAPTER = "gremlin.users.adapters.SocialAccountAdapter"
 
 # Anymail
 # ------------------------------------------------------------------------------

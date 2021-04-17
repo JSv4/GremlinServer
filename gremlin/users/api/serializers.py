@@ -16,12 +16,22 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/
 """
 
-from django.conf.urls import url
-from gremlin.users.api.views import RecoverUsernameViewSet, \
-    NewPasswordRequestViewSet
+from rest_framework import serializers
 
-# DRF Basics
-urlpatterns = [
-    url(r'RecoverUsername', RecoverUsernameViewSet.as_view()),
-    url(r'ResetPassword', NewPasswordRequestViewSet.as_view())
-]
+from gremlin.users.models import User
+
+
+class UserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ["id", "username", "email", "name", "url", "role"]
+
+        extra_kwargs = {
+            "url": {"view_name": "api:user-detail", "lookup_field": "username"}
+        }
+
+
+class SimpleUserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ["id", "username", "email", "name", "role"]

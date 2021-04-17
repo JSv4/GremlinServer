@@ -24,8 +24,8 @@ if __name__ == "__main__":
         raise
 
     # This allows easy placement of apps within the interior
-    # gremlin_gplv3 directory.
+    # gremlin directory.
     current_path = Path(__file__).parent.resolve()
-    sys.path.append(str(current_path / "gremlin_gplv3"))
+    sys.path.append(str(current_path / "gremlin"))
 
     execute_from_command_line(sys.argv)
