@@ -381,7 +381,8 @@ class PipelineSummarySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Pipeline
-        fields = ['id', 'name', 'description', 'total_steps', 'owner', 'owner_email', 'production', 'supported_files']
+        fields = ['id', 'name', 'description', 'total_steps', 'owner', 'owner_email', 'production', 'supported_files',
+                  'input_json_schema']
         read_only_fields = ['id', 'total_steps', 'owner', 'owner_email']
 
 class Full_PipelineSerializer(serializers.ModelSerializer):
