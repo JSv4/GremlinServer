@@ -378,6 +378,7 @@ class Job(models.Model):
 
     # Data variables
     job_inputs = models.TextField("Input Json", blank=True, default="")
+    job_input_json = GremlinJSONField(default=blank_json)
 
     # Related Files
     file = models.FileField("Output File Zip", upload_to='data/jobs_data/results/', blank=True, null=True)

@@ -293,7 +293,7 @@ class JobCreateSerializer(serializers.ModelSerializer):
 
         fields = ['id', 'name', 'created', 'pipeline', 'queued', 'started',
                   'error', 'finished', 'status', 'start_time', 'stop_time', 'job_inputs', 'file',
-                  'completed_tasks', 'task_count', 'type', 'owner', 'num_docs', 'notification_email']
+                  'completed_tasks', 'task_count', 'type', 'owner', 'num_docs', 'notification_email', 'job_input_json']
 
         read_only_fields = ['id', 'created', 'started', 'error', 'finished',
                             'status', 'start_time', 'stop_time', 'file', 'completed_tasks', 'task_count', 'type',
@@ -312,7 +312,7 @@ class JobSerializer(serializers.ModelSerializer):
 
         fields = ['id', 'name', 'created', 'pipeline', 'queued', 'started',
                   'error', 'finished', 'status', 'start_time', 'stop_time', 'job_inputs', 'file',
-                  'completed_tasks', 'task_count', 'type', 'owner', 'num_docs', 'notification_email']
+                  'completed_tasks', 'task_count', 'type', 'owner', 'num_docs', 'notification_email', 'job_input_json']
 
         read_only_fields = ['id', 'created', 'started', 'error', 'finished',
                             'status', 'start_time', 'stop_time', 'file','completed_tasks','task_count', 'type',

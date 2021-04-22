@@ -31,7 +31,7 @@ from gremlin.users.api.views import InviteUserViewSet, AllUserViewSet, \
 router = DefaultRouter()
 router.register(r'User', UserViewSet)
 router.register(r'Users', AllUserViewSet)
-router.register(r'jobs', JobViewSet)
+router.register(r'Jobs', JobViewSet)
 router.register(r'Documents', DocumentViewSet)
 router.register(r'Results', ResultsViewSet)
 router.register(r'PipelineSteps', PipelineStepViewSet)
