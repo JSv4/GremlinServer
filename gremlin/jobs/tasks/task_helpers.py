@@ -296,7 +296,7 @@ def buildScriptInput(pipeline_node, job, script):
     # The inputs should be stored in the job in a json object of form { schema : [ step_1_schema, step_2_schema, etc.] }
     # Try to load the job inputs, which should be stored as valid json string in the json_inputs field.
     try:
-        jobInputs = json.loads(job.job_inputs)
+        jobInputs = job.job_input_json
         print(f"Job Inputs: {jobInputs}")
         print(f"jobInputs type is: {type(jobInputs)}")
         print(f"Current pipeline node id is: {pipeline_node.id}")

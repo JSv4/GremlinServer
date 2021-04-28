@@ -866,9 +866,6 @@ def applyPythonScriptToJobDoc(*args, docId=-1, jobId=-1, nodeId=-1, scriptId=-1,
         # User scripts will NOT get any of the underlying django objs. This abstracts
         # away the underlying django / celery system and also makes it harder to do bad
         # things
-        docBytes = None
-
-        # Load the document bytes
         logger.info("Trying to load doc bytes")
         docBytes = None
         if doc.file:
@@ -1030,7 +1027,7 @@ def applyPythonScriptToJob(*args, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
         # and the step_settings store. Dictonaries are combined. If key exists in both job and step settings
         # the job key will overwrite the step key's value.
         try:
-            result.job_inputs = json.loads(job.job_inputs)
+            result.job_inputs = job.job_input_json
         except:
             pass
 
@@ -1054,6 +1051,7 @@ def applyPythonScriptToJob(*args, jobId=-1, nodeId=-1, scriptId=-1, **kwargs):
         result.start_state['current_node']['parent_node_ids'] = [*parent_node_ids]
         result.start_state['node_results'] = {**node_results}
         result.start_state['doc_results'] = {**doc_results}
+        result.start_state['job_input_json'] = job.job_input_json
         logger.info(f"start state: {result.start_state}")
 
         # We're building the result for this node PRIOR to running it
@@ -1402,12 +1400,12 @@ def createSharedResultForParallelExecution(*args, jobId=-1, stepId=-1, root=Fals
         # and the step_settings store. Dictonaries are combined. If key exists in both job and step settings
         # the job key will overwrite the step key's value.
         try:
-            node_result.job_inputs = job.dumps(node.job_inputs)
+            node_result.job_inputs = job.job_input_json
         except:
             pass
 
         try:
-            node_result.node_inputs = json.dumps(node.step_settings)
+            node_result.node_inputs = node.step_settings
         except:
             pass
 
@@ -1425,6 +1423,7 @@ def createSharedResultForParallelExecution(*args, jobId=-1, stepId=-1, root=Fals
         node_result.start_state['current_node']['parent_node_ids'] = parent_node_ids
         node_result.start_state['node_results'] = node_results
         node_result.start_state['doc_results'] = doc_results
+        node_result.start_state['job_input_json'] = job.job_input_json
 
         # We're building the result for this node PRIOR to running it
         # so the end state will start out equal to the start_state and we'll mutate
@@ -1878,13 +1877,16 @@ def packageJobResults(*args, jobId=-1, **kwargs):
         usingS3 = (settings.DEFAULT_FILE_STORAGE == "gremlin.utils.storages.MediaRootS3Boto3Storage")
         jobLogger.info("UsingS3: {0}".format(usingS3))
 
-        resultsDir = "./jobs_data/%s/" % (jobId)
         resultFilename = f"Job {jobId} - Results.zip"
 
         zipBytes = io.BytesIO()
         jobData = {}
 
         with ZipFile(zipBytes, mode="w", compression=zipfile.ZIP_DEFLATED) as jobResultsZipData:
+
+            # Add job inputs first
+            # Want to write out the inputs so these can be viewed and retrieved in export .zip too
+            jobResultsZipData.writestr('/Original Documents/Job Inputs.json', json.dumps(job.job_input_json, indent=4))
 
             for num, r in enumerate(documents):
 

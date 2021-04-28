@@ -30,7 +30,7 @@ class ProjectSerializer(serializers.Serializer):
     )
     file = serializers.FileField(allow_empty_file=False)
     pipeline = serializers.PrimaryKeyRelatedField(many=False, queryset=Pipeline.objects.all())
-    job_inputs = serializers.CharField(allow_blank=True)
+    job_input_json = serializers.CharField(allow_blank=True)
     callback = serializers.CharField(allow_blank=True)
 
     def create(self, validated_data):
@@ -40,7 +40,7 @@ class ProjectSerializer(serializers.Serializer):
             name=validated_data['name'],
             owner=validated_data['owner'],
             pipeline=validated_data['pipeline'],
-            job_inputs=validated_data['job_inputs'],
+            job_input_json=validated_data['job_input_json'],
             callback=validated_data['callback']
         )
 
@@ -292,7 +292,7 @@ class JobCreateSerializer(serializers.ModelSerializer):
         model = Job
 
         fields = ['id', 'name', 'created', 'pipeline', 'queued', 'started',
-                  'error', 'finished', 'status', 'start_time', 'stop_time', 'job_inputs', 'file',
+                  'error', 'finished', 'status', 'start_time', 'stop_time', 'file',
                   'completed_tasks', 'task_count', 'type', 'owner', 'num_docs', 'notification_email', 'job_input_json']
 
         read_only_fields = ['id', 'created', 'started', 'error', 'finished',
@@ -311,7 +311,7 @@ class JobSerializer(serializers.ModelSerializer):
         model = Job
 
         fields = ['id', 'name', 'created', 'pipeline', 'queued', 'started',
-                  'error', 'finished', 'status', 'start_time', 'stop_time', 'job_inputs', 'file',
+                  'error', 'finished', 'status', 'start_time', 'stop_time', 'file',
                   'completed_tasks', 'task_count', 'type', 'owner', 'num_docs', 'notification_email', 'job_input_json']
 
         read_only_fields = ['id', 'created', 'started', 'error', 'finished',
@@ -434,12 +434,12 @@ class ResultSerializer(serializers.ModelSerializer):
 
         fields = ['id', 'name', 'job', 'doc', 'pipeline_node', 'start_time', 'stop_time', 'file', 'has_file', 'type',
                   'owner',  'output_data', 'transformed_input_data', 'raw_input_data',
-                  'started', 'error', 'finished', 'script_id', 'job_inputs', 'node_inputs', 'start_state', 'end_state',
+                  'started', 'error', 'finished', 'script_id', 'node_inputs', 'start_state', 'end_state',
                   'node_output_data']
 
         read_only_fields = ['id', 'name', 'job', 'doc', 'pipeline_node', 'start_time', 'stop_time', 'has_file', 'file',
                             'type', 'owner', 'output_data', 'transformed_input_data', 'raw_input_data',
-                            'started', 'error', 'finished', 'script_id', 'job_inputs', 'node_inputs', 'start_state',
+                            'started', 'error', 'finished', 'script_id', 'node_inputs', 'start_state',
                             'end_state', 'node_output_data']
 
 class LogSerializer(serializers.ModelSerializer):

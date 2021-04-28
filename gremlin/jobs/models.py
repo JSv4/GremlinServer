@@ -47,11 +47,12 @@ def blank_state():
         'current_node': {
             'id':-1,
             'this_node_result_id': -1,
-            'this_node_doc_result_ids':[]
+            'this_node_doc_result_ids': []
         },
         'parent_node_ids': [],
         'node_results': {},
-        'doc_results': {}
+        'doc_results': {},
+        'job_input_json': {}
     }
 
 # this is deprecated. REMOVE. Looks like it's stuck in a migration so I cannot delete it without
@@ -377,7 +378,6 @@ class Job(models.Model):
     notification_email = models.CharField(max_length=512, blank=True, default="")
 
     # Data variables
-    job_inputs = models.TextField("Input Json", blank=True, default="")
     job_input_json = GremlinJSONField(default=blank_json)
 
     # Related Files
