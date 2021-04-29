@@ -206,6 +206,7 @@ def exportPipelineToZip(pipelineId):
         pipeline_meta = {
             'name': pipeline.name,
             'description': LiteralScalarString(pipeline.description),
+            'input_json_schema': pipeline.input_json_schema,
             'root_node': pipeline.root_node.id,
             'scale': pipeline.scale,
             'x_offset': pipeline.x_offset,
@@ -266,6 +267,7 @@ def exportPipelineToYAMLObj(pipelineId):
             'scale': pipeline.scale,
             'x_offset': pipeline.x_offset,
             'y_offset': pipeline.y_offset,
+            'input_json_schema': pipeline.input_json_schema
         }
 
         data = {
@@ -301,6 +303,7 @@ def importPipelineFromZip(zip_bytes, owner):
             owner=owner,
             locked=True,
             imported=True,
+            input_json_schema=data['pipeline']['input_json_schema'],
             name=data['pipeline']['name'],
             description=data['pipeline']['description'],
             scale=data['pipeline']['scale'],
@@ -373,6 +376,7 @@ def importPipelineFromYAML(yamlString, owner):
             locked=True,
             imported=True,
             name=data['pipeline']['name'],
+            input_json_schema=data['pipeline']['input_json_schema'],
             description=data['pipeline']['description'],
             scale=data['pipeline']['scale'],
             x_offset=data['pipeline']['x_offset'],
