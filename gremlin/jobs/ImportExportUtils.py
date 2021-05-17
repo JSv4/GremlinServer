@@ -314,7 +314,7 @@ def importPipelineFromZip(zip_bytes, owner):
             imported=True,
             input_json_schema=input_json_schema,
             name=name,
-            description=decription,
+            description=description,
             scale=scale,
             x_offset=x_offset,
             y_offset=y_offset
