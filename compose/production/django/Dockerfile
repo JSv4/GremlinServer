@@ -22,7 +22,8 @@ RUN apt-get update \
   && apt-get install -y xz-utils \
   && apt-get install -y tk-dev \
   && apt-get install -y python3-dev \
-  && apt-get install -y python-dev \  # psycopg2 dependencies
+  && apt-get install -y python-dev \
+  # psycopg2 dependencies
   && apt-get install -y libpq-dev \
   # Translations dependencies
   && apt-get install -y gettext \
