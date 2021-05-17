@@ -300,6 +300,8 @@ def importPipelineFromZip(zip_bytes, owner):
         print(data)
 
         pipeline_data = data['pipeline']
+        logger.info(f"Pipeline data json: {pipeline_data}")
+
         input_json_schema = pipeline_data.get('input_json_schema', {})
         name = pipeline_data.get('name', 'UNABLE TO IMPORT')
         description = pipeline_data.get('description', 'UNABLE TO LOAD DESCRIPTION')

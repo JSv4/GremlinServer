@@ -426,7 +426,7 @@ class Pipeline(models.Model):
     # would pretty easily signal to the frontend that data should be collected and then the collected data can be submitted
     # as part of the job. You'll only get this one touch point, though, so it's a little less elegant and powerful.
     # Certainly it is possible to do something much more powerful in the future, though.
-    input_json_schema = GremlinJSONField(default=blank_json)
+    input_json_schema = GremlinJSONField(default=blank_json, null=True)
 
     owner = models.ForeignKey(
         get_user_model(),
