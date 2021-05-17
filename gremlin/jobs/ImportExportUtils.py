@@ -299,16 +299,25 @@ def importPipelineFromZip(zip_bytes, owner):
         print("Loaded import data")
         print(data)
 
+        pipeline_data = data['pipeline']
+        input_json_schema = pipeline_data.get('input_json_schema', {})
+        name = pipeline_data.get('name', 'UNABLE TO IMPORT')
+        description = pipeline_data.get('description', 'UNABLE TO LOAD DESCRIPTION')
+        scale = pipeline_data.get('scale', 1)
+        x_offset = pipeline_data.get('x_offset', 0)
+        y_offset = pipeline_data.get('y_offset', 0)
+
+
         parent_pipeline = Pipeline.objects.create(
             owner=owner,
             locked=True,
             imported=True,
-            input_json_schema=data['pipeline']['input_json_schema'],
-            name=data['pipeline']['name'],
-            description=data['pipeline']['description'],
-            scale=data['pipeline']['scale'],
-            x_offset=data['pipeline']['x_offset'],
-            y_offset=data['pipeline']['y_offset']
+            input_json_schema=input_json_schema,
+            name=name,
+            description=decription,
+            scale=scale,
+            x_offset=x_offset,
+            y_offset=y_offset
         )
 
         print("Created pipeline synchronously... Then lock object and run setup steps async.")
